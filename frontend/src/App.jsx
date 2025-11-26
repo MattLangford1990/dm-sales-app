@@ -422,6 +422,13 @@ function ProductsTab() {
                       {product.stock_on_hand > 0 ? `${product.stock_on_hand} in stock` : 'Out of stock'}
                     </span>
                   </div>
+                  {product.pack_qty && (
+                    <div className="mb-2 text-center">
+                      <span className="text-xs bg-blue-100 text-blue-700 px-2 py-1 rounded-full font-medium">
+                        Pack of {product.pack_qty}
+                      </span>
+                    </div>
+                  )}
                   <button
                     onClick={() => addToCart(product)}
                     className="w-full bg-primary-600 text-white py-2 rounded-lg text-sm font-medium hover:bg-primary-700 transition"

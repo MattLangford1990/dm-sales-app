@@ -10,9 +10,20 @@ from typing import Optional, List, Dict
 import re
 import os
 
+import json
 from config import get_settings
 from agents import get_agent, get_agent_brands, verify_agent_pin, list_agents, get_all_brand_patterns
 import zoho_api
+
+# Load pack quantities
+PACK_QUANTITIES_FILE = os.path.join(os.path.dirname(__file__), "pack_quantities.json")
+def load_pack_quantities():
+    if os.path.exists(PACK_QUANTITIES_FILE):
+        with open(PACK_QUANTITIES_FILE, "r") as f:
+            return json.load(f)
+    return {}
+
+_pack_quantities = load_pack_quantities()
 
 settings = get_settings()
 security = HTTPBearer()
@@ -450,17 +461,19 @@ async def get_products(
         # Transform for frontend (only include selling price, not purchase price)
         products = []
         for item in items:
+            sku = item.get("sku", "")
             products.append({
                 "item_id": item.get("item_id"),
                 "name": item.get("name"),
-                "sku": item.get("sku"),
+                "sku": sku,
                 "description": item.get("description", ""),
                 "rate": item.get("rate", 0),  # Selling price
                 "stock_on_hand": item.get("stock_on_hand", 0),
                 "image_url": item.get("image_url") or item.get("image_document_id"),
                 "brand": item.get("brand") or item.get("manufacturer") or item.get("cf_brand") or item.get("group_name", ""),
                 "unit": item.get("unit", "pcs"),
-                "status": item.get("status", "active")
+                "status": item.get("status", "active"),
+                "pack_qty": _pack_quantities.get(sku)
             })
         
         return {
