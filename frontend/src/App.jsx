@@ -990,22 +990,35 @@ function QuickOrderTab() {
     const lookupResults = []
     
     for (const line of lines) {
-      // Parse SKU and optional quantity
+      // Parse SKU/EAN and optional quantity
       const parts = line.trim().split(/[,\s]+/)
-      const sku = parts[0].toUpperCase()
+      const code = parts[0].toUpperCase()
       const qty = parseInt(parts[1]) || 1
       
       try {
-        // Search for the SKU
-        const data = await apiRequest(`/products?search=${encodeURIComponent(sku)}`)
+        // First try barcode/EAN lookup
+        const barcodeData = await apiRequest(`/barcode/${encodeURIComponent(code)}`)
+        
+        if (barcodeData.found && barcodeData.product) {
+          lookupResults.push({
+            sku: code,
+            qty,
+            found: true,
+            product: barcodeData.product
+          })
+          continue
+        }
+        
+        // Fall back to SKU search
+        const data = await apiRequest(`/products?search=${encodeURIComponent(code)}`)
         const products = data.products || []
         
         // Find exact SKU match
-        const exactMatch = products.find(p => p.sku?.toUpperCase() === sku)
+        const exactMatch = products.find(p => p.sku?.toUpperCase() === code)
         
         if (exactMatch) {
           lookupResults.push({
-            sku,
+            sku: code,
             qty,
             found: true,
             product: exactMatch
@@ -1013,7 +1026,7 @@ function QuickOrderTab() {
         } else if (products.length > 0) {
           // Partial match - show first result
           lookupResults.push({
-            sku,
+            sku: code,
             qty,
             found: true,
             product: products[0],
@@ -1021,14 +1034,14 @@ function QuickOrderTab() {
           })
         } else {
           lookupResults.push({
-            sku,
+            sku: code,
             qty,
             found: false
           })
         }
       } catch (err) {
         lookupResults.push({
-          sku,
+          sku: code,
           qty,
           found: false,
           error: err.message
@@ -1064,7 +1077,7 @@ function QuickOrderTab() {
       <div className="p-4 bg-gray-50 border-b space-y-3">
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-2">
-            Enter SKU codes (one per line, optionally with quantity)
+            Enter SKU or EAN codes (one per line, optionally with quantity)
           </label>
           <textarea
             value={input}
@@ -1154,8 +1167,8 @@ function QuickOrderTab() {
         {results.length === 0 && !loading && (
           <div className="flex flex-col items-center justify-center h-full text-gray-500">
             <span className="text-5xl mb-4">⚡</span>
-            <p className="text-center">Enter SKU codes above to quickly add products to your cart</p>
-            <p className="text-sm text-gray-400 mt-2">Format: SKU or SKU quantity</p>
+            <p className="text-center">Enter SKU or EAN codes above to quickly add products to your cart</p>
+            <p className="text-sm text-gray-400 mt-2">Format: CODE or CODE quantity</p>
           </div>
         )}
       </div>
