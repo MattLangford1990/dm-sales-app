@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <rect width="512" height="512" rx="64" fill="#1e40af"/>
+  <text x="256" y="300" font-family="Arial, sans-serif" font-size="200" font-weight="bold" fill="white" text-anchor="middle">DM</text>
+  <text x="256" y="400" font-family="Arial, sans-serif" font-size="80" fill="#93c5fd" text-anchor="middle">SALES</text>
+</svg>

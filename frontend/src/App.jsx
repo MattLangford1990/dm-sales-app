@@ -1,0 +1,1016 @@
+import React, { useState, useEffect, createContext, useContext } from 'react'
+import { Routes, Route, Navigate, useNavigate } from 'react-router-dom'
+
+// API helpers
+const API_BASE = '/api'
+
+async function apiRequest(endpoint, options = {}) {
+  const token = localStorage.getItem('token')
+  const headers = {
+    'Content-Type': 'application/json',
+    ...(token && { Authorization: `Bearer ${token}` }),
+    ...options.headers
+  }
+  
+  const response = await fetch(`${API_BASE}${endpoint}`, {
+    ...options,
+    headers
+  })
+  
+  if (response.status === 401) {
+    localStorage.removeItem('token')
+    localStorage.removeItem('agent')
+    window.location.href = '/login'
+    throw new Error('Unauthorized')
+  }
+  
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ detail: 'Request failed' }))
+    throw new Error(error.detail || 'Request failed')
+  }
+  
+  return response.json()
+}
+
+// Auth Context
+const AuthContext = createContext(null)
+
+function AuthProvider({ children }) {
+  const [agent, setAgent] = useState(() => {
+    const saved = localStorage.getItem('agent')
+    return saved ? JSON.parse(saved) : null
+  })
+  
+  const login = async (agentId, pin) => {
+    const data = await apiRequest('/auth/login', {
+      method: 'POST',
+      body: JSON.stringify({ agent_id: agentId, pin })
+    })
+    localStorage.setItem('token', data.access_token)
+    localStorage.setItem('agent', JSON.stringify({
+      name: data.agent_name,
+      brands: data.brands
+    }))
+    setAgent({ name: data.agent_name, brands: data.brands })
+    return data
+  }
+  
+  const logout = () => {
+    localStorage.removeItem('token')
+    localStorage.removeItem('agent')
+    setAgent(null)
+  }
+  
+  return (
+    <AuthContext.Provider value={{ agent, login, logout }}>
+      {children}
+    </AuthContext.Provider>
+  )
+}
+
+const useAuth = () => useContext(AuthContext)
+
+// Cart Context
+const CartContext = createContext(null)
+
+function CartProvider({ children }) {
+  const [cart, setCart] = useState([])
+  const [customer, setCustomer] = useState(null)
+  
+  const addToCart = (product, quantity = 1) => {
+    setCart(prev => {
+      const existing = prev.find(item => item.item_id === product.item_id)
+      if (existing) {
+        return prev.map(item =>
+          item.item_id === product.item_id
+            ? { ...item, quantity: item.quantity + quantity }
+            : item
+        )
+      }
+      return [...prev, { ...product, quantity, discount: 0 }]
+    })
+  }
+  
+  const updateQuantity = (itemId, quantity) => {
+    if (quantity <= 0) {
+      setCart(prev => prev.filter(item => item.item_id !== itemId))
+    } else {
+      setCart(prev => prev.map(item =>
+        item.item_id === itemId ? { ...item, quantity } : item
+      ))
+    }
+  }
+  
+  const updateDiscount = (itemId, discount) => {
+    setCart(prev => prev.map(item =>
+      item.item_id === itemId ? { ...item, discount: Math.max(0, Math.min(100, discount)) } : item
+    ))
+  }
+  
+  const clearCart = () => {
+    setCart([])
+    setCustomer(null)
+  }
+  
+  const cartTotal = cart.reduce((sum, item) => {
+    const itemTotal = item.rate * item.quantity
+    const discountAmount = itemTotal * (item.discount / 100)
+    return sum + (itemTotal - discountAmount)
+  }, 0)
+  
+  const cartCount = cart.reduce((sum, item) => sum + item.quantity, 0)
+  
+  return (
+    <CartContext.Provider value={{
+      cart, customer, setCustomer,
+      addToCart, updateQuantity, updateDiscount, clearCart,
+      cartTotal, cartCount
+    }}>
+      {children}
+    </CartContext.Provider>
+  )
+}
+
+const useCart = () => useContext(CartContext)
+
+// Components
+function LoadingSpinner() {
+  return (
+    <div className="flex items-center justify-center p-8">
+      <div className="w-8 h-8 border-4 border-primary-200 border-t-primary-600 rounded-full animate-spin"></div>
+    </div>
+  )
+}
+
+function LoginPage() {
+  const [agentId, setAgentId] = useState('')
+  const [pin, setPin] = useState('')
+  const [error, setError] = useState('')
+  const [loading, setLoading] = useState(false)
+  const { login } = useAuth()
+  const navigate = useNavigate()
+  
+  const handleSubmit = async (e) => {
+    e.preventDefault()
+    setError('')
+    setLoading(true)
+    
+    try {
+      await login(agentId, pin)
+      navigate('/')
+    } catch (err) {
+      setError(err.message)
+    } finally {
+      setLoading(false)
+    }
+  }
+  
+  return (
+    <div className="min-h-screen bg-gradient-to-br from-primary-600 to-primary-800 flex items-center justify-center p-6">
+      <div className="bg-white rounded-2xl shadow-xl p-8 w-full max-w-md">
+        <div className="text-center mb-8">
+          <h1 className="text-3xl font-bold text-gray-800">DM Sales</h1>
+          <p className="text-gray-500 mt-2">Sign in to continue</p>
+        </div>
+        
+        <form onSubmit={handleSubmit} className="space-y-6">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">Agent ID</label>
+            <input
+              type="text"
+              value={agentId}
+              onChange={(e) => setAgentId(e.target.value)}
+              className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-primary-500 focus:border-transparent outline-none transition"
+              placeholder="Enter your agent ID"
+              autoCapitalize="none"
+              autoCorrect="off"
+            />
+          </div>
+          
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">PIN</label>
+            <input
+              type="password"
+              inputMode="numeric"
+              pattern="[0-9]*"
+              value={pin}
+              onChange={(e) => setPin(e.target.value)}
+              className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-primary-500 focus:border-transparent outline-none transition"
+              placeholder="Enter your PIN"
+            />
+          </div>
+          
+          {error && (
+            <div className="bg-red-50 text-red-600 px-4 py-3 rounded-xl text-sm">
+              {error}
+            </div>
+          )}
+          
+          <button
+            type="submit"
+            disabled={loading || !agentId || !pin}
+            className="w-full bg-primary-600 text-white py-4 rounded-xl font-semibold text-lg hover:bg-primary-700 disabled:opacity-50 disabled:cursor-not-allowed transition touch-target"
+          >
+            {loading ? 'Signing in...' : 'Sign In'}
+          </button>
+        </form>
+      </div>
+    </div>
+  )
+}
+
+function HomePage({ onNavigate }) {
+  const { agent, logout } = useAuth()
+  const { cartCount } = useCart()
+  
+  const menuItems = [
+    { id: 'products', label: 'Products', icon: '📦', color: 'bg-blue-500 hover:bg-blue-600' },
+    { id: 'customers', label: 'Customers', icon: '👥', color: 'bg-green-500 hover:bg-green-600' },
+    { id: 'cart', label: 'Cart', icon: '🛒', color: 'bg-orange-500 hover:bg-orange-600', badge: cartCount },
+    { id: 'orders', label: 'Orders', icon: '📋', color: 'bg-purple-500 hover:bg-purple-600' }
+  ]
+  
+  return (
+    <div className="flex-1 bg-gradient-to-br from-primary-600 to-primary-800 flex flex-col safe-area-top">
+      <div className="p-6 flex justify-between items-center">
+        <div className="text-white">
+          <h1 className="text-2xl font-bold">DM Sales</h1>
+          <p className="text-primary-200">Welcome, {agent?.name}</p>
+        </div>
+        <button
+          onClick={logout}
+          className="text-primary-200 hover:text-white transition px-4 py-2"
+        >
+          Logout
+        </button>
+      </div>
+      
+      <div className="flex-1 flex items-center justify-center p-6">
+        <div className="grid grid-cols-2 gap-6 w-full max-w-lg">
+          {menuItems.map(item => (
+            <button
+              key={item.id}
+              onClick={() => onNavigate(item.id)}
+              className={`${item.color} text-white rounded-2xl p-8 flex flex-col items-center justify-center transition transform active:scale-95 relative shadow-lg`}
+            >
+              <span className="text-6xl mb-4">{item.icon}</span>
+              <span className="text-xl font-semibold">{item.label}</span>
+              {item.badge > 0 && (
+                <span className="absolute top-4 right-4 bg-red-500 text-white text-sm w-8 h-8 rounded-full flex items-center justify-center font-bold shadow">
+                  {item.badge > 9 ? '9+' : item.badge}
+                </span>
+              )}
+            </button>
+          ))}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function PageHeader({ title, onBack }) {
+  const { agent, logout } = useAuth()
+  
+  return (
+    <div className="bg-primary-600 text-white px-4 py-4 safe-area-top">
+      <div className="flex items-center justify-between">
+        <div className="flex items-center">
+          <button
+            onClick={onBack}
+            className="text-primary-200 hover:text-white transition touch-target pr-4 text-2xl"
+          >
+            ←
+          </button>
+          <div>
+            <h1 className="text-xl font-bold">{title}</h1>
+            <p className="text-primary-200 text-sm">{agent?.name}</p>
+          </div>
+        </div>
+        <button
+          onClick={logout}
+          className="text-primary-200 hover:text-white transition touch-target px-2"
+        >
+          Logout
+        </button>
+      </div>
+    </div>
+  )
+}
+
+function ProductsTab() {
+  const [selectedBrand, setSelectedBrand] = useState(null)
+  const [products, setProducts] = useState([])
+  const [loading, setLoading] = useState(false)
+  const [search, setSearch] = useState('')
+  const [page, setPage] = useState(1)
+  const [hasMore, setHasMore] = useState(false)
+  const { addToCart } = useCart()
+  const { agent } = useAuth()
+  
+  const loadProducts = async (reset = false) => {
+    setLoading(true)
+    try {
+      const currentPage = reset ? 1 : page
+      const params = new URLSearchParams({ page: currentPage })
+      if (search) params.append('search', search)
+      if (selectedBrand) params.append('brand', selectedBrand)
+      
+      const data = await apiRequest(`/products?${params}`)
+      
+      setProducts(reset ? data.products : [...products, ...data.products])
+      setHasMore(data.has_more)
+      if (reset) setPage(1)
+    } catch (err) {
+      console.error('Failed to load products:', err)
+    } finally {
+      setLoading(false)
+    }
+  }
+  
+  useEffect(() => {
+    if (selectedBrand) {
+      loadProducts(true)
+    }
+  }, [search, selectedBrand])
+  
+  // Show brand selector first
+  if (!selectedBrand) {
+    return (
+      <div className="flex flex-col h-full">
+        <div className="p-4 bg-gray-50 border-b">
+          <h2 className="text-lg font-semibold text-gray-800">Select a Brand</h2>
+        </div>
+        <div className="flex-1 overflow-y-auto p-4">
+          <div className="grid grid-cols-2 gap-4">
+            {agent?.brands?.map(brand => (
+              <button
+                key={brand}
+                onClick={() => setSelectedBrand(brand)}
+                className="bg-white border-2 border-gray-200 rounded-xl p-6 text-center hover:border-primary-500 hover:bg-primary-50 transition active:scale-95"
+              >
+                <span className="text-4xl mb-3 block">
+                  {brand === 'Remember' && '🎁'}
+                  {brand === 'Räder' && '✨'}
+                  {brand === 'Relaxound' && '🎵'}
+                  {brand === 'My Flame' && '🕯️'}
+                  {brand === 'Elvang Denmark' && '🧶'}
+                  {brand === 'Paper Products Design' && '🎉'}
+                  {brand === 'Ideas4Seasons' && '🌿'}
+                  {brand === 'GEFU' && '🍳'}
+                </span>
+                <span className="font-semibold text-gray-800">{brand}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+      </div>
+    )
+  }
+  
+  return (
+    <div className="flex flex-col h-full">
+      <div className="p-4 bg-gray-50 border-b space-y-3">
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => setSelectedBrand(null)}
+            className="text-primary-600 font-medium text-2xl"
+          >
+            ←
+          </button>
+          <span className="font-semibold text-gray-800">{selectedBrand}</span>
+        </div>
+        <input
+          type="search"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder="Search products..."
+          className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-primary-500 focus:border-transparent outline-none"
+        />
+      </div>
+      
+      <div className="flex-1 overflow-y-auto p-4">
+        {loading && products.length === 0 ? (
+          <LoadingSpinner />
+        ) : (
+          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+            {products.map(product => (
+              <div
+                key={product.item_id}
+                className="bg-white rounded-xl border border-gray-200 overflow-hidden card-touch transition"
+              >
+                <div className="aspect-square bg-gray-100 flex items-center justify-center">
+                  <img
+                    src={`/api/products/${product.item_id}/image`}
+                    alt={product.name}
+                    className="w-full h-full object-cover"
+                    onError={(e) => {
+                      e.target.style.display = 'none'
+                      e.target.nextSibling.style.display = 'flex'
+                    }}
+                  />
+                  <span className="text-4xl hidden items-center justify-center w-full h-full">📦</span>
+                </div>
+                <div className="p-3">
+                  <p className="text-xs text-gray-500 mb-1">{product.sku}</p>
+                  <h3 className="font-medium text-gray-800 text-sm line-clamp-2 mb-2">{product.name}</h3>
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="font-bold text-primary-600">£{product.rate?.toFixed(2)}</span>
+                    <span className={`text-xs px-2 py-1 rounded-full ${
+                      product.stock_on_hand > 0 ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'
+                    }`}>
+                      {product.stock_on_hand > 0 ? `${product.stock_on_hand} in stock` : 'Out of stock'}
+                    </span>
+                  </div>
+                  <button
+                    onClick={() => addToCart(product)}
+                    className="w-full bg-primary-600 text-white py-2 rounded-lg text-sm font-medium hover:bg-primary-700 transition"
+                  >
+                    Add to Cart
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+        
+        {hasMore && (
+          <div className="mt-4 text-center">
+            <button
+              onClick={() => { setPage(p => p + 1); loadProducts() }}
+              disabled={loading}
+              className="bg-gray-100 text-gray-700 px-6 py-3 rounded-xl font-medium hover:bg-gray-200 transition"
+            >
+              {loading ? 'Loading...' : 'Load More'}
+            </button>
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
+function CustomersTab() {
+  const [customers, setCustomers] = useState([])
+  const [loading, setLoading] = useState(true)
+  const [search, setSearch] = useState('')
+  const [showNewForm, setShowNewForm] = useState(false)
+  const { setCustomer, customer: selectedCustomer } = useCart()
+  
+  const loadCustomers = async () => {
+    setLoading(true)
+    try {
+      const params = new URLSearchParams()
+      if (search) params.append('search', search)
+      const data = await apiRequest(`/customers?${params}`)
+      setCustomers(data.customers)
+    } catch (err) {
+      console.error('Failed to load customers:', err)
+    } finally {
+      setLoading(false)
+    }
+  }
+  
+  useEffect(() => {
+    loadCustomers()
+  }, [search])
+  
+  const handleSelectCustomer = (customer) => {
+    setCustomer(customer)
+  }
+  
+  if (showNewForm) {
+    return <NewCustomerForm onBack={() => setShowNewForm(false)} onCreated={(c) => { setCustomer(c); setShowNewForm(false); loadCustomers() }} />
+  }
+  
+  return (
+    <div className="flex flex-col h-full">
+      <div className="p-4 bg-gray-50 border-b space-y-3">
+        <input
+          type="search"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder="Search customers..."
+          className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-primary-500 focus:border-transparent outline-none"
+        />
+        <button
+          onClick={() => setShowNewForm(true)}
+          className="w-full bg-green-600 text-white py-3 rounded-xl font-medium hover:bg-green-700 transition"
+        >
+          + New Customer
+        </button>
+      </div>
+      
+      {selectedCustomer && (
+        <div className="p-4 bg-primary-50 border-b border-primary-200">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-xs text-primary-600 font-medium">SELECTED CUSTOMER</p>
+              <p className="font-bold text-gray-800">{selectedCustomer.company_name}</p>
+            </div>
+            <button
+              onClick={() => setCustomer(null)}
+              className="text-red-600 text-sm font-medium"
+            >
+              Clear
+            </button>
+          </div>
+        </div>
+      )}
+      
+      <div className="flex-1 overflow-y-auto">
+        {loading ? (
+          <LoadingSpinner />
+        ) : (
+          <div className="divide-y">
+            {customers.map(customer => (
+              <button
+                key={customer.contact_id}
+                onClick={() => handleSelectCustomer(customer)}
+                className={`w-full p-4 text-left hover:bg-gray-50 transition ${
+                  selectedCustomer?.contact_id === customer.contact_id ? 'bg-primary-50' : ''
+                }`}
+              >
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h3 className="font-medium text-gray-800">{customer.company_name}</h3>
+                    {customer.contact_name && customer.contact_name !== customer.company_name && (
+                      <p className="text-sm text-gray-500">{customer.contact_name}</p>
+                    )}
+                    {customer.email && (
+                      <p className="text-sm text-gray-400">{customer.email}</p>
+                    )}
+                  </div>
+                  {selectedCustomer?.contact_id === customer.contact_id && (
+                    <span className="text-primary-600 text-xl">✓</span>
+                  )}
+                </div>
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
+function NewCustomerForm({ onBack, onCreated }) {
+  const [form, setForm] = useState({ company_name: '', contact_name: '', email: '', phone: '' })
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState('')
+  
+  const handleSubmit = async (e) => {
+    e.preventDefault()
+    if (!form.company_name) {
+      setError('Company name is required')
+      return
+    }
+    
+    setLoading(true)
+    setError('')
+    
+    try {
+      const data = await apiRequest('/customers', {
+        method: 'POST',
+        body: JSON.stringify(form)
+      })
+      onCreated(data)
+    } catch (err) {
+      setError(err.message)
+    } finally {
+      setLoading(false)
+    }
+  }
+  
+  return (
+    <div className="flex flex-col h-full">
+      <div className="p-4 bg-gray-50 border-b flex items-center">
+        <button onClick={onBack} className="text-primary-600 font-medium mr-4">← Back</button>
+        <h2 className="font-bold text-lg">New Customer</h2>
+      </div>
+      
+      <form onSubmit={handleSubmit} className="flex-1 overflow-y-auto p-4 space-y-4">
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-2">Company Name *</label>
+          <input
+            type="text"
+            value={form.company_name}
+            onChange={(e) => setForm({ ...form, company_name: e.target.value })}
+            className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-primary-500 focus:border-transparent outline-none"
+          />
+        </div>
+        
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-2">Contact Name</label>
+          <input
+            type="text"
+            value={form.contact_name}
+            onChange={(e) => setForm({ ...form, contact_name: e.target.value })}
+            className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-primary-500 focus:border-transparent outline-none"
+          />
+        </div>
+        
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-2">Email</label>
+          <input
+            type="email"
+            value={form.email}
+            onChange={(e) => setForm({ ...form, email: e.target.value })}
+            className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-primary-500 focus:border-transparent outline-none"
+          />
+        </div>
+        
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-2">Phone</label>
+          <input
+            type="tel"
+            value={form.phone}
+            onChange={(e) => setForm({ ...form, phone: e.target.value })}
+            className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-primary-500 focus:border-transparent outline-none"
+          />
+        </div>
+        
+        {error && (
+          <div className="bg-red-50 text-red-600 px-4 py-3 rounded-xl text-sm">
+            {error}
+          </div>
+        )}
+        
+        <button
+          type="submit"
+          disabled={loading}
+          className="w-full bg-primary-600 text-white py-4 rounded-xl font-semibold text-lg hover:bg-primary-700 disabled:opacity-50 transition"
+        >
+          {loading ? 'Creating...' : 'Create Customer'}
+        </button>
+      </form>
+    </div>
+  )
+}
+
+function CartTab({ onOrderSubmitted }) {
+  const { cart, customer, cartTotal, updateQuantity, updateDiscount, clearCart } = useCart()
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState('')
+  const [notes, setNotes] = useState('')
+  
+  const handleSubmitOrder = async () => {
+    if (!customer) {
+      setError('Please select a customer first')
+      return
+    }
+    
+    if (cart.length === 0) {
+      setError('Cart is empty')
+      return
+    }
+    
+    setLoading(true)
+    setError('')
+    
+    try {
+      const orderData = {
+        customer_id: customer.contact_id,
+        customer_name: customer.company_name,
+        notes,
+        line_items: cart.map(item => ({
+          item_id: item.item_id,
+          name: item.name,
+          sku: item.sku,
+          quantity: item.quantity,
+          rate: item.rate,
+          discount_percent: item.discount
+        }))
+      }
+      
+      const result = await apiRequest('/orders', {
+        method: 'POST',
+        body: JSON.stringify(orderData)
+      })
+      
+      clearCart()
+      setNotes('')
+      onOrderSubmitted(result)
+    } catch (err) {
+      setError(err.message)
+    } finally {
+      setLoading(false)
+    }
+  }
+  
+  return (
+    <div className="flex flex-col h-full">
+      {customer ? (
+        <div className="p-4 bg-primary-50 border-b border-primary-200">
+          <p className="text-xs text-primary-600 font-medium">ORDER FOR</p>
+          <p className="font-bold text-gray-800">{customer.company_name}</p>
+        </div>
+      ) : (
+        <div className="p-4 bg-yellow-50 border-b border-yellow-200">
+          <p className="text-yellow-800">Please select a customer from the Customers section</p>
+        </div>
+      )}
+      
+      <div className="flex-1 overflow-y-auto">
+        {cart.length === 0 ? (
+          <div className="flex flex-col items-center justify-center h-full text-gray-500">
+            <span className="text-5xl mb-4">🛒</span>
+            <p>Your cart is empty</p>
+          </div>
+        ) : (
+          <div className="divide-y">
+            {cart.map(item => (
+              <div key={item.item_id} className="p-4">
+                <div className="flex justify-between items-start mb-2">
+                  <div className="flex-1">
+                    <h3 className="font-medium text-gray-800">{item.name}</h3>
+                    <p className="text-sm text-gray-500">{item.sku}</p>
+                    <p className="text-primary-600 font-medium">£{item.rate?.toFixed(2)} each</p>
+                  </div>
+                  <button
+                    onClick={() => updateQuantity(item.item_id, 0)}
+                    className="text-red-500 text-sm"
+                  >
+                    Remove
+                  </button>
+                </div>
+                
+                <div className="flex items-center gap-4">
+                  <div className="flex items-center">
+                    <label className="text-sm text-gray-600 mr-2">Qty:</label>
+                    <button
+                      onClick={() => updateQuantity(item.item_id, item.quantity - 1)}
+                      className="w-8 h-8 bg-gray-200 rounded-lg font-bold"
+                    >
+                      -
+                    </button>
+                    <span className="w-12 text-center font-medium">{item.quantity}</span>
+                    <button
+                      onClick={() => updateQuantity(item.item_id, item.quantity + 1)}
+                      className="w-8 h-8 bg-gray-200 rounded-lg font-bold"
+                    >
+                      +
+                    </button>
+                  </div>
+                  
+                  <div className="flex items-center">
+                    <label className="text-sm text-gray-600 mr-2">Discount:</label>
+                    <input
+                      type="number"
+                      min="0"
+                      max="100"
+                      value={item.discount}
+                      onChange={(e) => updateDiscount(item.item_id, parseFloat(e.target.value) || 0)}
+                      className="w-16 px-2 py-1 border rounded text-center"
+                    />
+                    <span className="ml-1 text-gray-600">%</span>
+                  </div>
+                  
+                  <div className="text-right flex-1">
+                    <p className="font-bold">
+                      £{((item.rate * item.quantity) * (1 - item.discount / 100)).toFixed(2)}
+                    </p>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+      
+      {cart.length > 0 && (
+        <div className="border-t bg-white p-4 space-y-4 safe-area-bottom">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">Order Notes</label>
+            <textarea
+              value={notes}
+              onChange={(e) => setNotes(e.target.value)}
+              rows={2}
+              className="w-full px-4 py-2 border border-gray-300 rounded-xl focus:ring-2 focus:ring-primary-500 focus:border-transparent outline-none"
+              placeholder="Add any notes for this order..."
+            />
+          </div>
+          
+          <div className="flex items-center justify-between text-lg">
+            <span className="font-medium">Total:</span>
+            <span className="font-bold text-primary-600">£{cartTotal.toFixed(2)}</span>
+          </div>
+          
+          {error && (
+            <div className="bg-red-50 text-red-600 px-4 py-3 rounded-xl text-sm">
+              {error}
+            </div>
+          )}
+          
+          <button
+            onClick={handleSubmitOrder}
+            disabled={loading || !customer}
+            className="w-full bg-green-600 text-white py-4 rounded-xl font-semibold text-lg hover:bg-green-700 disabled:opacity-50 transition"
+          >
+            {loading ? 'Submitting...' : 'Submit Order'}
+          </button>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function OrdersTab() {
+  const [orders, setOrders] = useState([])
+  const [loading, setLoading] = useState(true)
+  
+  const loadOrders = async () => {
+    setLoading(true)
+    try {
+      const data = await apiRequest('/orders')
+      setOrders(data.orders)
+    } catch (err) {
+      console.error('Failed to load orders:', err)
+    } finally {
+      setLoading(false)
+    }
+  }
+  
+  useEffect(() => {
+    loadOrders()
+  }, [])
+  
+  return (
+    <div className="flex flex-col h-full">
+      <div className="p-4 bg-gray-50 border-b">
+        <button
+          onClick={loadOrders}
+          className="w-full bg-gray-200 text-gray-700 py-3 rounded-xl font-medium hover:bg-gray-300 transition"
+        >
+          Refresh Orders
+        </button>
+      </div>
+      
+      <div className="flex-1 overflow-y-auto">
+        {loading ? (
+          <LoadingSpinner />
+        ) : orders.length === 0 ? (
+          <div className="flex flex-col items-center justify-center h-full text-gray-500">
+            <span className="text-5xl mb-4">📋</span>
+            <p>No orders yet</p>
+          </div>
+        ) : (
+          <div className="divide-y">
+            {orders.map(order => (
+              <div key={order.salesorder_id} className="p-4">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="font-bold text-primary-600">{order.salesorder_number}</span>
+                  <span className={`text-xs px-2 py-1 rounded-full ${
+                    order.status === 'confirmed' ? 'bg-green-100 text-green-700' :
+                    order.status === 'draft' ? 'bg-yellow-100 text-yellow-700' :
+                    'bg-gray-100 text-gray-700'
+                  }`}>
+                    {order.status}
+                  </span>
+                </div>
+                <p className="text-gray-800">{order.customer_name}</p>
+                <div className="flex items-center justify-between mt-2 text-sm">
+                  <span className="text-gray-500">{order.date}</span>
+                  <span className="font-medium">£{order.total?.toFixed(2)}</span>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
+function OrderSuccessModal({ order, onClose }) {
+  return (
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-6">
+      <div className="bg-white rounded-2xl p-8 max-w-md w-full text-center">
+        <div className="text-6xl mb-4">✅</div>
+        <h2 className="text-2xl font-bold text-gray-800 mb-2">Order Submitted!</h2>
+        <p className="text-gray-600 mb-4">Order Number: <strong>{order.salesorder_number}</strong></p>
+        <p className="text-2xl font-bold text-primary-600 mb-6">£{order.total?.toFixed(2)}</p>
+        <button
+          onClick={onClose}
+          className="w-full bg-primary-600 text-white py-4 rounded-xl font-semibold hover:bg-primary-700 transition"
+        >
+          Continue
+        </button>
+      </div>
+    </div>
+  )
+}
+
+function TabBar({ activeTab, setActiveTab }) {
+  const { cartCount } = useCart()
+  
+  const tabs = [
+    { id: 'home', label: 'Home', icon: '🏠' },
+    { id: 'products', label: 'Products', icon: '📦' },
+    { id: 'customers', label: 'Customers', icon: '👥' },
+    { id: 'cart', label: 'Cart', icon: '🛒', badge: cartCount },
+    { id: 'orders', label: 'Orders', icon: '📋' }
+  ]
+  
+  return (
+    <div className="bg-white border-t border-gray-200 safe-area-bottom">
+      <div className="flex">
+        {tabs.map(tab => (
+          <button
+            key={tab.id}
+            onClick={() => setActiveTab(tab.id)}
+            className={`flex-1 py-3 flex flex-col items-center relative touch-target ${
+              activeTab === tab.id ? 'text-primary-600' : 'text-gray-500'
+            }`}
+          >
+            <span className="text-2xl">{tab.icon}</span>
+            <span className="text-xs mt-1 font-medium">{tab.label}</span>
+            {tab.badge > 0 && (
+              <span className="absolute top-1 right-1/4 bg-red-500 text-white text-xs w-5 h-5 rounded-full flex items-center justify-center font-bold">
+                {tab.badge > 9 ? '9+' : tab.badge}
+              </span>
+            )}
+          </button>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+function MainApp() {
+  const [activeSection, setActiveSection] = useState('home')
+  const [successOrder, setSuccessOrder] = useState(null)
+  
+  const handleOrderSubmitted = (order) => {
+    setSuccessOrder(order)
+    setActiveSection('orders')
+  }
+  
+  const titles = {
+    products: 'Products',
+    customers: 'Customers',
+    cart: 'Cart',
+    orders: 'Recent Orders'
+  }
+  
+  // Show landing page if home selected
+  if (activeSection === 'home') {
+    return (
+      <div className="h-full flex flex-col">
+        <HomePage onNavigate={setActiveSection} />
+        <TabBar activeTab={activeSection} setActiveTab={setActiveSection} />
+      </div>
+    )
+  }
+  
+  return (
+    <div className="h-full flex flex-col bg-gray-100">
+      <PageHeader title={titles[activeSection]} onBack={() => setActiveSection('home')} />
+      
+      <div className="flex-1 overflow-hidden">
+        {activeSection === 'products' && <ProductsTab />}
+        {activeSection === 'customers' && <CustomersTab />}
+        {activeSection === 'cart' && <CartTab onOrderSubmitted={handleOrderSubmitted} />}
+        {activeSection === 'orders' && <OrdersTab />}
+      </div>
+      
+      <TabBar activeTab={activeSection} setActiveTab={setActiveSection} />
+      
+      {successOrder && (
+        <OrderSuccessModal
+          order={successOrder}
+          onClose={() => setSuccessOrder(null)}
+        />
+      )}
+    </div>
+  )
+}
+
+function ProtectedRoute({ children }) {
+  const { agent } = useAuth()
+  
+  if (!agent) {
+    return <Navigate to="/login" replace />
+  }
+  
+  return children
+}
+
+export default function App() {
+  return (
+    <AuthProvider>
+      <CartProvider>
+        <Routes>
+          <Route path="/login" element={<LoginPage />} />
+          <Route
+            path="/*"
+            element={
+              <ProtectedRoute>
+                <MainApp />
+              </ProtectedRoute>
+            }
+          />
+        </Routes>
+      </CartProvider>
+    </AuthProvider>
+  )
+}

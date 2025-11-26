@@ -1,0 +1,20 @@
+services:
+  - type: web
+    name: dm-sales-app
+    runtime: python
+    rootDir: ./
+    buildCommand: chmod +x build.sh && ./build.sh
+    startCommand: cd backend && gunicorn main:app -w 2 -k uvicorn.workers.UvicornWorker --bind 0.0.0.0:$PORT
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.11"
+      - key: ZOHO_CLIENT_ID
+        sync: false
+      - key: ZOHO_CLIENT_SECRET
+        sync: false
+      - key: ZOHO_REFRESH_TOKEN
+        sync: false
+      - key: ZOHO_ORG_ID
+        sync: false
+      - key: SECRET_KEY
+        generateValue: true
