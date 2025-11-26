@@ -439,7 +439,7 @@ function LoginPage() {
   }
   
   return (
-    <div className="min-h-screen bg-gradient-to-br from-primary-600 to-primary-800 flex items-center justify-center p-6">
+    <div className="min-h-screen bg-gradient-to-br from-plum-500 to-plum-700 flex items-center justify-center p-6">
       <div className="bg-white rounded-2xl shadow-xl p-8 w-full max-w-md">
         {/* Offline Banner */}
         {!isOnline && (
@@ -519,23 +519,23 @@ function HomePage({ onNavigate }) {
   const { cartCount } = useCart()
   
   const menuItems = [
-    { id: 'products', label: 'Products', icon: '📦', color: 'bg-blue-500 hover:bg-blue-600' },
-    { id: 'quickorder', label: 'Quick Order', icon: '⚡', color: 'bg-yellow-500 hover:bg-yellow-600' },
-    { id: 'customers', label: 'Customers', icon: '👥', color: 'bg-green-500 hover:bg-green-600' },
-    { id: 'cart', label: 'Cart', icon: '🛒', color: 'bg-orange-500 hover:bg-orange-600', badge: cartCount },
-    { id: 'orders', label: 'Orders', icon: '📋', color: 'bg-purple-500 hover:bg-purple-600' }
+    { id: 'products', label: 'Products', icon: '📦', color: 'bg-primary-500 hover:bg-primary-600' },
+    { id: 'quickorder', label: 'Quick Order', icon: '⚡', color: 'bg-peach-400 hover:bg-peach-500' },
+    { id: 'customers', label: 'Customers', icon: '👥', color: 'bg-primary-600 hover:bg-primary-700' },
+    { id: 'cart', label: 'Cart', icon: '🛒', color: 'bg-wine-500 hover:bg-wine-600', badge: cartCount },
+    { id: 'orders', label: 'Orders', icon: '📋', color: 'bg-plum-500 hover:bg-plum-600' }
   ]
   
   return (
-    <div className="flex-1 bg-gradient-to-br from-primary-600 to-primary-800 flex flex-col safe-area-top">
+    <div className="flex-1 bg-gradient-to-br from-plum-500 to-plum-700 flex flex-col safe-area-top">
       <div className="p-6 flex justify-between items-center">
         <div className="text-white">
           <h1 className="text-2xl font-bold">DM Sales</h1>
-          <p className="text-primary-200">Welcome, {agent?.name}</p>
+          <p className="text-plum-400">Welcome, {agent?.name}</p>
         </div>
         <button
           onClick={logout}
-          className="text-primary-200 hover:text-white transition px-4 py-2"
+          className="text-peach-400 hover:text-white transition px-4 py-2"
         >
           Logout
         </button>
@@ -569,7 +569,7 @@ function PageHeader({ title, onBack }) {
   const offline = useOffline()
   
   return (
-    <div className="bg-primary-600 text-white safe-area-top">
+    <div className="bg-plum-500 text-white safe-area-top">
       {!offline?.isOnline && (
         <div className="bg-orange-500 text-white text-center text-xs py-1 font-medium">
           📴 Offline Mode - Using cached data
@@ -580,18 +580,18 @@ function PageHeader({ title, onBack }) {
           <div className="flex items-center">
             <button
               onClick={onBack}
-              className="text-primary-200 hover:text-white transition touch-target pr-4 text-2xl"
+              className="text-peach-400 hover:text-white transition touch-target pr-4 text-2xl"
             >
               ←
             </button>
             <div>
               <h1 className="text-xl font-bold">{title}</h1>
-              <p className="text-primary-200 text-sm">{agent?.name}</p>
+              <p className="text-peach-300 text-sm">{agent?.name}</p>
             </div>
           </div>
           <button
             onClick={logout}
-            className="text-primary-200 hover:text-white transition touch-target px-2"
+            className="text-peach-400 hover:text-white transition touch-target px-2"
           >
             Logout
           </button>
@@ -732,69 +732,41 @@ function ProductsTab() {
             )}
           </div>
         ) : (
-          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
-            {products.map(product => (
-              <div
-                key={product.item_id}
-                className="bg-white rounded-xl border border-gray-200 overflow-hidden card-touch transition"
-              >
-                <div 
-                  className="aspect-square bg-gray-100 flex items-center justify-center cursor-pointer"
+          <>
+            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
+              {products.map(product => (
+                <div
+                  key={product.item_id}
                   onClick={() => setSelectedProduct(product)}
+                  className="bg-white rounded-xl border border-gray-200 p-3 cursor-pointer hover:border-primary-400 hover:shadow-md active:scale-95 transition"
                 >
-                  <img
-                    src={`/api/products/${product.item_id}/image`}
-                    alt={product.name}
-                    className="w-full h-full object-cover"
-                    loading="lazy"
-                    onError={(e) => {
-                      e.target.style.display = 'none'
-                      e.target.nextSibling.style.display = 'flex'
-                    }}
-                  />
-                  <span className="text-4xl hidden items-center justify-center w-full h-full">📦</span>
-                </div>
-                <div className="p-3">
                   <p className="text-xs text-gray-500 mb-1">{product.sku}</p>
-                  <h3 
-                    className="font-medium text-gray-800 text-sm line-clamp-2 mb-2 cursor-pointer hover:text-primary-600"
-                    onClick={() => setSelectedProduct(product)}
-                  >
-                    {product.name}
-                  </h3>
+                  <h3 className="font-medium text-gray-800 text-sm line-clamp-2 mb-2">{product.name}</h3>
                   <div className="flex items-center justify-between mb-2">
                     <span className="font-bold text-primary-600">£{product.rate?.toFixed(2)}</span>
                     <span className={`text-xs px-2 py-1 rounded-full ${
                       product.stock_on_hand > 0 ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'
                     }`}>
-                      {product.stock_on_hand > 0 ? `${product.stock_on_hand} in stock` : 'Out of stock'}
+                      {product.stock_on_hand > 0 ? product.stock_on_hand : 'Out'}
                     </span>
                   </div>
                   {product.pack_qty && (
-                    <div className="mb-2 text-center">
-                      <span className="text-xs bg-blue-100 text-blue-700 px-2 py-1 rounded-full font-medium">
-                        Pack of {product.pack_qty}
-                      </span>
-                    </div>
+                    <span className="text-xs bg-blue-100 text-blue-700 px-2 py-1 rounded-full font-medium">
+                      Pack of {product.pack_qty}
+                    </span>
                   )}
-                  <button
-                    onClick={() => addToCart(product)}
-                    className="w-full bg-primary-600 text-white py-2 rounded-lg text-sm font-medium hover:bg-primary-700 transition"
-                  >
-                    Add to Cart
-                  </button>
                 </div>
-              </div>
-            ))}
-          </div>
-          
-          {selectedProduct && (
-            <ProductDetailModal
-              product={selectedProduct}
-              onClose={() => setSelectedProduct(null)}
-              onAddToCart={addToCart}
-            />
-          )}
+              ))}
+            </div>
+            
+            {selectedProduct && (
+              <ProductDetailModal
+                product={selectedProduct}
+                onClose={() => setSelectedProduct(null)}
+                onAddToCart={addToCart}
+              />
+            )}
+          </>
         )}
         
         {hasMore && (
