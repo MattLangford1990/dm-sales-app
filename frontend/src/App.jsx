@@ -225,6 +225,7 @@ function HomePage({ onNavigate }) {
   
   const menuItems = [
     { id: 'products', label: 'Products', icon: '📦', color: 'bg-blue-500 hover:bg-blue-600' },
+    { id: 'quickorder', label: 'Quick Order', icon: '⚡', color: 'bg-yellow-500 hover:bg-yellow-600' },
     { id: 'customers', label: 'Customers', icon: '👥', color: 'bg-green-500 hover:bg-green-600' },
     { id: 'cart', label: 'Cart', icon: '🛒', color: 'bg-orange-500 hover:bg-orange-600', badge: cartCount },
     { id: 'orders', label: 'Orders', icon: '📋', color: 'bg-purple-500 hover:bg-purple-600' }
@@ -889,6 +890,196 @@ function OrdersTab() {
   )
 }
 
+function QuickOrderTab() {
+  const [input, setInput] = useState('')
+  const [results, setResults] = useState([])
+  const [loading, setLoading] = useState(false)
+  const { addToCart } = useCart()
+  
+  const handleLookup = async () => {
+    if (!input.trim()) return
+    
+    setLoading(true)
+    setResults([])
+    
+    // Parse input - each line can be "SKU" or "SKU qty" or "SKU,qty"
+    const lines = input.split('\n').filter(line => line.trim())
+    const lookupResults = []
+    
+    for (const line of lines) {
+      // Parse SKU and optional quantity
+      const parts = line.trim().split(/[,\s]+/)
+      const sku = parts[0].toUpperCase()
+      const qty = parseInt(parts[1]) || 1
+      
+      try {
+        // Search for the SKU
+        const data = await apiRequest(`/products?search=${encodeURIComponent(sku)}`)
+        const products = data.products || []
+        
+        // Find exact SKU match
+        const exactMatch = products.find(p => p.sku?.toUpperCase() === sku)
+        
+        if (exactMatch) {
+          lookupResults.push({
+            sku,
+            qty,
+            found: true,
+            product: exactMatch
+          })
+        } else if (products.length > 0) {
+          // Partial match - show first result
+          lookupResults.push({
+            sku,
+            qty,
+            found: true,
+            product: products[0],
+            partial: true
+          })
+        } else {
+          lookupResults.push({
+            sku,
+            qty,
+            found: false
+          })
+        }
+      } catch (err) {
+        lookupResults.push({
+          sku,
+          qty,
+          found: false,
+          error: err.message
+        })
+      }
+    }
+    
+    setResults(lookupResults)
+    setLoading(false)
+  }
+  
+  const handleAddAll = () => {
+    const foundItems = results.filter(r => r.found)
+    foundItems.forEach(r => {
+      addToCart(r.product, r.qty)
+    })
+    // Clear after adding
+    setInput('')
+    setResults([])
+  }
+  
+  const handleAddSingle = (result) => {
+    addToCart(result.product, result.qty)
+    // Remove from results
+    setResults(prev => prev.filter(r => r.sku !== result.sku))
+  }
+  
+  const foundCount = results.filter(r => r.found).length
+  const notFoundCount = results.filter(r => !r.found).length
+  
+  return (
+    <div className="flex flex-col h-full">
+      <div className="p-4 bg-gray-50 border-b space-y-3">
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-2">
+            Enter SKU codes (one per line, optionally with quantity)
+          </label>
+          <textarea
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            placeholder={"GL10\nCM18 6\nEM20,12\nPB15 4"}
+            rows={5}
+            className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-primary-500 focus:border-transparent outline-none font-mono text-sm"
+          />
+        </div>
+        <button
+          onClick={handleLookup}
+          disabled={loading || !input.trim()}
+          className="w-full bg-primary-600 text-white py-3 rounded-xl font-medium hover:bg-primary-700 disabled:opacity-50 transition"
+        >
+          {loading ? 'Looking up...' : 'Look Up Products'}
+        </button>
+      </div>
+      
+      <div className="flex-1 overflow-y-auto p-4">
+        {results.length > 0 && (
+          <>
+            <div className="mb-4 flex items-center justify-between">
+              <div className="text-sm">
+                <span className="text-green-600 font-medium">{foundCount} found</span>
+                {notFoundCount > 0 && (
+                  <span className="text-red-600 font-medium ml-3">{notFoundCount} not found</span>
+                )}
+              </div>
+              {foundCount > 0 && (
+                <button
+                  onClick={handleAddAll}
+                  className="bg-green-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-green-700 transition"
+                >
+                  Add All ({foundCount}) to Cart
+                </button>
+              )}
+            </div>
+            
+            <div className="space-y-3">
+              {results.map((result, idx) => (
+                <div
+                  key={idx}
+                  className={`p-4 rounded-xl border ${
+                    result.found
+                      ? 'bg-green-50 border-green-200'
+                      : 'bg-red-50 border-red-200'
+                  }`}
+                >
+                  <div className="flex items-start justify-between">
+                    <div className="flex-1">
+                      <div className="flex items-center gap-2">
+                        <span className="font-mono font-bold">{result.sku}</span>
+                        <span className="text-gray-500">× {result.qty}</span>
+                        {result.partial && (
+                          <span className="text-xs bg-yellow-100 text-yellow-700 px-2 py-0.5 rounded">partial match</span>
+                        )}
+                      </div>
+                      {result.found ? (
+                        <div className="mt-1">
+                          <p className="text-sm text-gray-800">{result.product.name}</p>
+                          <p className="text-sm text-primary-600 font-medium">£{result.product.rate?.toFixed(2)} each</p>
+                          <p className="text-xs text-gray-500">
+                            {result.product.stock_on_hand > 0 
+                              ? `${result.product.stock_on_hand} in stock` 
+                              : 'Out of stock'}
+                          </p>
+                        </div>
+                      ) : (
+                        <p className="text-sm text-red-600 mt-1">Product not found</p>
+                      )}
+                    </div>
+                    {result.found && (
+                      <button
+                        onClick={() => handleAddSingle(result)}
+                        className="bg-green-600 text-white px-3 py-1 rounded-lg text-sm font-medium hover:bg-green-700 transition"
+                      >
+                        Add
+                      </button>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </>
+        )}
+        
+        {results.length === 0 && !loading && (
+          <div className="flex flex-col items-center justify-center h-full text-gray-500">
+            <span className="text-5xl mb-4">⚡</span>
+            <p className="text-center">Enter SKU codes above to quickly add products to your cart</p>
+            <p className="text-sm text-gray-400 mt-2">Format: SKU or SKU quantity</p>
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
 function OrderSuccessModal({ order, onClose }) {
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-6">
@@ -955,6 +1146,7 @@ function MainApp() {
   
   const titles = {
     products: 'Products',
+    quickorder: 'Quick Order',
     customers: 'Customers',
     cart: 'Cart',
     orders: 'Recent Orders'
@@ -976,6 +1168,7 @@ function MainApp() {
       
       <div className="flex-1 overflow-hidden">
         {activeSection === 'products' && <ProductsTab />}
+        {activeSection === 'quickorder' && <QuickOrderTab />}
         {activeSection === 'customers' && <CustomersTab />}
         {activeSection === 'cart' && <CartTab onOrderSubmitted={handleOrderSubmitted} />}
         {activeSection === 'orders' && <OrdersTab />}
