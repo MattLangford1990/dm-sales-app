@@ -1,4 +1,4 @@
-import React, { useState, useEffect, createContext, useContext } from 'react'
+import React, { useState, useEffect, createContext, useContext, useCallback, useRef } from 'react'
 import { Routes, Route, Navigate, useNavigate } from 'react-router-dom'
 
 // API helpers
@@ -132,6 +132,89 @@ function CartProvider({ children }) {
 }
 
 const useCart = () => useContext(CartContext)
+
+// Toast Context for notifications
+const ToastContext = createContext(null)
+
+function ToastProvider({ children }) {
+  const [toasts, setToasts] = useState([])
+  
+  const addToast = useCallback((message, type = 'success') => {
+    const id = Date.now()
+    setToasts(prev => [...prev, { id, message, type }])
+    setTimeout(() => {
+      setToasts(prev => prev.filter(t => t.id !== id))
+    }, 3000)
+  }, [])
+  
+  return (
+    <ToastContext.Provider value={{ addToast }}>
+      {children}
+      <div className="fixed top-4 right-4 z-50 space-y-2">
+        {toasts.map(toast => (
+          <div
+            key={toast.id}
+            className={`px-4 py-3 rounded-xl shadow-lg text-white font-medium animate-slide-in ${
+              toast.type === 'success' ? 'bg-green-600' :
+              toast.type === 'error' ? 'bg-red-600' :
+              'bg-blue-600'
+            }`}
+          >
+            {toast.message}
+          </div>
+        ))}
+      </div>
+    </ToastContext.Provider>
+  )
+}
+
+const useToast = () => useContext(ToastContext)
+
+// Barcode Scanner Hook
+function useBarcodeScanner(onScan) {
+  const bufferRef = useRef('')
+  const lastKeyTimeRef = useRef(0)
+  
+  useEffect(() => {
+    const handleKeyPress = (e) => {
+      // Ignore if user is typing in an input field
+      const activeEl = document.activeElement
+      const isTyping = activeEl && (activeEl.tagName === 'INPUT' || activeEl.tagName === 'TEXTAREA')
+      
+      if (isTyping) {
+        bufferRef.current = ''
+        return
+      }
+      
+      const now = Date.now()
+      
+      // If more than 100ms since last key, reset buffer (manual typing)
+      if (now - lastKeyTimeRef.current > 100) {
+        bufferRef.current = ''
+      }
+      lastKeyTimeRef.current = now
+      
+      // Enter key triggers scan
+      if (e.key === 'Enter') {
+        if (bufferRef.current.length >= 3) {
+          // We have a barcode!
+          e.preventDefault()
+          onScan(bufferRef.current)
+        }
+        bufferRef.current = ''
+        return
+      }
+      
+      // Only capture alphanumeric characters
+      if (e.key.length === 1 && /[a-zA-Z0-9]/.test(e.key)) {
+        bufferRef.current += e.key
+      }
+    }
+    
+    window.addEventListener('keydown', handleKeyPress)
+    return () => window.removeEventListener('keydown', handleKeyPress)
+  }, [onScan])
+}
 
 // Components
 function LoadingSpinner() {
@@ -1135,6 +1218,39 @@ function TabBar({ activeTab, setActiveTab }) {
   )
 }
 
+function BarcodeHandler({ children }) {
+  const { addToCart } = useCart()
+  const { addToast } = useToast()
+  
+  const handleBarcodeScan = useCallback(async (barcode) => {
+    const sku = barcode.toUpperCase()
+    addToast(`Scanning: ${sku}...`, 'info')
+    
+    try {
+      // Search for the product
+      const data = await apiRequest(`/products?search=${encodeURIComponent(sku)}`)
+      const products = data.products || []
+      
+      // Find exact match first
+      const exactMatch = products.find(p => p.sku?.toUpperCase() === sku)
+      const product = exactMatch || products[0]
+      
+      if (product) {
+        addToCart(product, 1)
+        addToast(`Added: ${product.name}`, 'success')
+      } else {
+        addToast(`Product not found: ${sku}`, 'error')
+      }
+    } catch (err) {
+      addToast(`Error looking up ${sku}`, 'error')
+    }
+  }, [addToCart, addToast])
+  
+  useBarcodeScanner(handleBarcodeScan)
+  
+  return children
+}
+
 function MainApp() {
   const [activeSection, setActiveSection] = useState('home')
   const [successOrder, setSuccessOrder] = useState(null)
@@ -1200,17 +1316,21 @@ export default function App() {
   return (
     <AuthProvider>
       <CartProvider>
-        <Routes>
-          <Route path="/login" element={<LoginPage />} />
-          <Route
-            path="/*"
-            element={
-              <ProtectedRoute>
-                <MainApp />
-              </ProtectedRoute>
-            }
-          />
-        </Routes>
+        <ToastProvider>
+          <Routes>
+            <Route path="/login" element={<LoginPage />} />
+            <Route
+              path="/*"
+              element={
+                <ProtectedRoute>
+                  <BarcodeHandler>
+                    <MainApp />
+                  </BarcodeHandler>
+                </ProtectedRoute>
+              }
+            />
+          </Routes>
+        </ToastProvider>
       </CartProvider>
     </AuthProvider>
   )
