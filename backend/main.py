@@ -388,9 +388,10 @@ async def get_products(
             items = response.get("items", [])
             has_more = response.get("page_context", {}).get("has_more_page", False)
             print(f"DEBUG: Search returned {len(items)} items")
-            # Filter by agent's brands
-            items = filter_items_by_brand(items, agent.brands)
-            print(f"DEBUG: After filter: {len(items)} items")
+            # Filter by selected brand if specified, otherwise by agent's brands
+            filter_brands = [brand] if brand else agent.brands
+            items = filter_items_by_brand(items, filter_brands)
+            print(f"DEBUG: After filter by {filter_brands}: {len(items)} items")
         elif brand:
             # User selected a specific brand - search for it using variations
             brand_patterns = get_all_brand_patterns([brand])
@@ -502,12 +503,16 @@ async def get_product(
 async def get_product_image(item_id: str):
     """Get product image - proxied through backend for auth"""
     try:
+        print(f"DEBUG: Image request for item_id={item_id}")
         image_data = await zoho_api.get_item_image(item_id)
         if image_data:
+            print(f"DEBUG: Got image data, size={len(image_data)} bytes")
             return Response(content=image_data, media_type="image/jpeg")
         else:
+            print(f"DEBUG: No image data returned for {item_id}")
             raise HTTPException(status_code=404, detail="Image not found")
     except Exception as e:
+        print(f"DEBUG: Image error for {item_id}: {e}")
         raise HTTPException(status_code=404, detail="Image not found")
 
 

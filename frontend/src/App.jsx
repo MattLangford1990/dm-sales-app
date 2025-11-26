@@ -403,6 +403,7 @@ function ProductsTab() {
                     src={`/api/products/${product.item_id}/image`}
                     alt={product.name}
                     className="w-full h-full object-cover"
+                    loading="lazy"
                     onError={(e) => {
                       e.target.style.display = 'none'
                       e.target.nextSibling.style.display = 'flex'

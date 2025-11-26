@@ -15,6 +15,10 @@ _token_cache = {
 _image_cache = {}
 IMAGE_CACHE_TTL = timedelta(hours=24)  # Cache images for 24 hours
 
+# Document ID cache - stores {item_id: image_document_id}
+# Populated when items are fetched via list endpoint
+_doc_id_cache = {}
+
 # Rate limiting for image requests
 _image_request_semaphore = asyncio.Semaphore(2)  # Max 2 concurrent image requests
 
@@ -93,7 +97,14 @@ async def get_items(page: int = 1, per_page: int = 200, search: str = None) -> d
     if search:
         params["search_text"] = search
     
-    return await zoho_request("GET", "items", params=params)
+    result = await zoho_request("GET", "items", params=params)
+    
+    # Cache image_document_id for each item (list endpoint has it, single item doesn't)
+    for item in result.get("items", []):
+        if item.get("image_document_id"):
+            _doc_id_cache[item["item_id"]] = item["image_document_id"]
+    
+    return result
 
 
 async def get_item(item_id: str) -> dict:
@@ -160,75 +171,55 @@ async def get_sales_order(salesorder_id: str) -> dict:
 # ============ Images ============
 
 async def get_item_image(item_id: str) -> bytes:
-    """Get item image as bytes with caching and rate limiting"""
+    """Get item image as bytes using documents endpoint (avoids rate limiting)"""
     now = datetime.now()
     
-    # Check cache first
+    # Check image cache first
     if item_id in _image_cache:
         cached = _image_cache[item_id]
         if now - cached["cached_at"] < IMAGE_CACHE_TTL:
+            print(f"IMAGE: Cache hit for {item_id}")
             return cached["data"]
         else:
-            # Cache expired, remove it
+            print(f"IMAGE: Cache expired for {item_id}")
             del _image_cache[item_id]
     
-    # Check if we're in a global rate limit cooldown
-    if _rate_limit_cooldown["blocked_until"]:
-        if now < _rate_limit_cooldown["blocked_until"]:
-            remaining = (_rate_limit_cooldown["blocked_until"] - now).seconds
-            print(f"Rate limit cooldown active, {remaining}s remaining - skipping image {item_id}")
-            return None
-        else:
-            # Cooldown expired
-            _rate_limit_cooldown["blocked_until"] = None
+    # Check if we have the document ID cached
+    doc_id = _doc_id_cache.get(item_id)
     
-    # Use semaphore to limit concurrent requests to Zoho
+    if not doc_id:
+        print(f"IMAGE: No document ID cached for {item_id}")
+        return None
+    
+    # Use semaphore to limit concurrent requests
     async with _image_request_semaphore:
-        # Double-check cache (another request might have fetched it while waiting)
+        # Double-check image cache
         if item_id in _image_cache:
             cached = _image_cache[item_id]
             if now - cached["cached_at"] < IMAGE_CACHE_TTL:
                 return cached["data"]
         
-        # Check cooldown again after waiting for semaphore
-        if _rate_limit_cooldown["blocked_until"] and datetime.now() < _rate_limit_cooldown["blocked_until"]:
-            return None
-        
-        # Add small delay to avoid hammering the API
-        await asyncio.sleep(0.2)
-        
         token = await get_access_token()
-        
-        headers = {
-            "Authorization": f"Zoho-oauthtoken {token}"
-        }
-        
-        base_url = "https://www.zohoapis.eu/inventory/v1"
-        url = f"{base_url}/items/{item_id}/image"
-        
+        headers = {"Authorization": f"Zoho-oauthtoken {token}"}
         params = {"organization_id": settings.zoho_org_id}
         
-        # Retry logic for rate limits
-        max_retries = 3
-        for attempt in range(max_retries):
-            async with httpx.AsyncClient(timeout=30.0) as client:
-                response = await client.get(url, headers=headers, params=params)
-                
-                if response.status_code == 200:
-                    # Cache the image
-                    _image_cache[item_id] = {
-                        "data": response.content,
-                        "cached_at": datetime.now()
-                    }
-                    return response.content
-                elif response.status_code == 429:
-                    # Rate limited - set global cooldown and stop trying
-                    _rate_limit_cooldown["blocked_until"] = datetime.now() + RATE_LIMIT_COOLDOWN
-                    print(f"Rate limited! Setting {RATE_LIMIT_COOLDOWN.seconds}s global cooldown")
-                    return None
-                else:
-                    # Other error - don't retry
-                    print(f"Image request for {item_id}: status={response.status_code}")
-                    return None
+        # Fetch via documents endpoint (not rate limited!)
+        print(f"IMAGE: Fetching document {doc_id} for {item_id}")
+        doc_url = f"https://www.zohoapis.eu/inventory/v1/documents/{doc_id}"
         
-        return None
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            doc_resp = await client.get(doc_url, headers=headers, params=params)
+            
+            print(f"IMAGE: Response status={doc_resp.status_code} for {item_id}")
+            
+            if doc_resp.status_code == 200:
+                # Cache the image
+                _image_cache[item_id] = {
+                    "data": doc_resp.content,
+                    "cached_at": datetime.now()
+                }
+                print(f"IMAGE: Cached {len(doc_resp.content)} bytes for {item_id}")
+                return doc_resp.content
+            else:
+                print(f"IMAGE: Error {doc_resp.status_code} for {item_id}")
+                return None

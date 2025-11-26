@@ -16,18 +16,62 @@ BRAND_VARIATIONS = {
     "GEFU": ["GEFU", "Gefu"],
 }
 
+ALL_BRANDS = ["Remember", "Räder", "Relaxound", "My Flame", "Elvang Denmark", "Paper Products Design", "Ideas4Seasons", "GEFU"]
+
 AGENTS = {
     "kate": {
-        "name": "Kate Ellis",
-        "pin": "1234",  # Change these PINs!
-        "commission_rate": 0.15,  # 15%
-        "brands": ["Remember", "Räder", "My Flame", "Ideas4Seasons"]
+        "name": "Kate",
+        "pin": "1234",
+        "commission_rate": 0.15,
+        "brands": ["Remember", "My Flame", "Ideas4Seasons", "Räder"]
     },
     "nick": {
-        "name": "Nick Barr",
-        "pin": "5678",  # Change these PINs!
-        "commission_rate": 0.15,  # 15%
-        "brands": ["Remember", "Räder", "Relaxound", "My Flame", "Elvang Denmark", "Paper Products Design", "Ideas4Seasons", "GEFU"]
+        "name": "Nick",
+        "pin": "1234",
+        "commission_rate": 0.15,
+        "brands": ALL_BRANDS
+    },
+    "dave": {
+        "name": "Dave & Chris",
+        "pin": "1234",
+        "commission_rate": 0.125,
+        "brands": ALL_BRANDS
+    },
+    "gay": {
+        "name": "Gay",
+        "pin": "1234",
+        "commission_rate": 0.125,
+        "brands": ["Remember", "Räder", "Ideas4Seasons", "My Flame"]
+    },
+    "hannah": {
+        "name": "Hannah",
+        "pin": "1234",
+        "commission_rate": 0.125,
+        "brands": ["Remember"]
+    },
+    "steph": {
+        "name": "Steph",
+        "pin": "1234",
+        "commission_rate": 0.125,
+        "brands": ["Räder"]
+    },
+    "georgia": {
+        "name": "Georgia",
+        "pin": "1234",
+        "commission_rate": 0.125,
+        "brands": ALL_BRANDS
+    },
+    "sammie": {
+        "name": "Sammie",
+        "pin": "1234",
+        "commission_rate": 0.125,
+        "brands": ALL_BRANDS
+    },
+    "matt": {
+        "name": "Matt",
+        "pin": "1234",
+        "commission_rate": 0.125,
+        "brands": ALL_BRANDS
     },
 }
 
