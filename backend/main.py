@@ -533,59 +533,96 @@ async def get_product_image(item_id: str):
         raise HTTPException(status_code=404, detail="Image not found")
 
 
+# EAN lookup cache - maps EAN to item data
+_ean_cache = {}
+_ean_cache_built = False
+
+
+async def build_ean_cache():
+    """Build EAN lookup cache from all items"""
+    global _ean_cache, _ean_cache_built
+    
+    if _ean_cache_built:
+        return
+    
+    print("BARCODE: Building EAN cache...")
+    _ean_cache = {}
+    page = 1
+    total = 0
+    
+    while True:
+        try:
+            response = await zoho_api.get_items(page=page, per_page=200)
+            items = response.get("items", [])
+            
+            if not items:
+                break
+            
+            for item in items:
+                # Get EAN from various possible fields
+                ean = item.get("ean") or item.get("upc") or item.get("cf_ean") or ""
+                if ean and item.get("status") != "inactive":
+                    _ean_cache[ean] = item
+                    total += 1
+            
+            page += 1
+            
+            # Safety limit
+            if page > 50:
+                break
+                
+        except Exception as e:
+            print(f"BARCODE: Error building cache page {page}: {e}")
+            break
+    
+    _ean_cache_built = True
+    print(f"BARCODE: Cache built with {total} EAN entries")
+
+
 @app.get("/api/barcode/{barcode}")
 async def lookup_barcode(
     barcode: str,
     agent: TokenData = Depends(get_current_agent)
 ):
     """Look up a product by EAN/barcode"""
+    global _ean_cache, _ean_cache_built
+    
     try:
         print(f"BARCODE: Looking up {barcode}")
         
-        # Search using the barcode as search text
-        response = await zoho_api.get_items(page=1, per_page=100, search=barcode)
+        # Build cache if not already built
+        if not _ean_cache_built:
+            await build_ean_cache()
+        
+        # Look up in cache
+        if barcode in _ean_cache:
+            item = _ean_cache[barcode]
+            print(f"BARCODE: Found in cache: {item.get('name')}")
+            
+            sku = item.get("sku", "")
+            return {
+                "found": True,
+                "product": {
+                    "item_id": item.get("item_id"),
+                    "name": item.get("name"),
+                    "sku": sku,
+                    "ean": barcode,
+                    "description": item.get("description", ""),
+                    "rate": item.get("rate", 0),
+                    "stock_on_hand": item.get("stock_on_hand", 0),
+                    "brand": item.get("brand") or item.get("manufacturer") or "",
+                    "unit": item.get("unit", "pcs"),
+                    "pack_qty": _pack_quantities.get(sku)
+                }
+            }
+        
+        # Not in cache - try SKU search as fallback
+        print(f"BARCODE: Not in EAN cache, trying SKU search")
+        response = await zoho_api.get_items(page=1, per_page=10, search=barcode)
         items = response.get("items", [])
         
-        print(f"BARCODE: Search returned {len(items)} items")
-        
-        # Debug: print first item's fields to see what EAN field is called
-        if items:
-            first = items[0]
-            print(f"BARCODE DEBUG: First item fields: ean={first.get('ean')}, upc={first.get('upc')}, cf_ean={first.get('cf_ean')}, barcode={first.get('barcode')}")
-            print(f"BARCODE DEBUG: All custom fields: {[k for k in first.keys() if k.startswith('cf_')]}")
-        
-        # Look for exact EAN match - try multiple possible field names
-        for item in items:
-            item_ean = item.get("ean") or item.get("upc") or item.get("cf_ean") or item.get("barcode") or ""
-            print(f"BARCODE: Checking item {item.get('sku')} - EAN field value: '{item_ean}'")
-            
-            if item_ean == barcode:
-                print(f"BARCODE: Found exact EAN match: {item.get('name')}")
-                # Filter out inactive items
-                if item.get("status") == "inactive":
-                    return {"found": False, "message": "Product is inactive"}
-                
-                sku = item.get("sku", "")
-                return {
-                    "found": True,
-                    "product": {
-                        "item_id": item.get("item_id"),
-                        "name": item.get("name"),
-                        "sku": sku,
-                        "ean": item_ean,
-                        "description": item.get("description", ""),
-                        "rate": item.get("rate", 0),
-                        "stock_on_hand": item.get("stock_on_hand", 0),
-                        "brand": item.get("brand") or item.get("manufacturer") or "",
-                        "unit": item.get("unit", "pcs"),
-                        "pack_qty": _pack_quantities.get(sku)
-                    }
-                }
-        
-        # If no exact EAN match, check if barcode matches SKU
         for item in items:
             if item.get("sku", "").upper() == barcode.upper():
-                print(f"BARCODE: Found SKU match: {item.get('name')}")
                 if item.get("status") == "inactive":
                     return {"found": False, "message": "Product is inactive"}
                 

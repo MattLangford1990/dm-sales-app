@@ -1223,26 +1223,20 @@ function BarcodeHandler({ children }) {
   const { addToast } = useToast()
   
   const handleBarcodeScan = useCallback(async (barcode) => {
-    const sku = barcode.toUpperCase()
-    addToast(`Scanning: ${sku}...`, 'info')
+    addToast(`Scanning: ${barcode}...`, 'info')
     
     try {
-      // Search for the product
-      const data = await apiRequest(`/products?search=${encodeURIComponent(sku)}`)
-      const products = data.products || []
+      // Use barcode lookup endpoint (searches by EAN first, then SKU)
+      const data = await apiRequest(`/barcode/${encodeURIComponent(barcode)}`)
       
-      // Find exact match first
-      const exactMatch = products.find(p => p.sku?.toUpperCase() === sku)
-      const product = exactMatch || products[0]
-      
-      if (product) {
-        addToCart(product, 1)
-        addToast(`Added: ${product.name}`, 'success')
+      if (data.found && data.product) {
+        addToCart(data.product, 1)
+        addToast(`Added: ${data.product.name}`, 'success')
       } else {
-        addToast(`Product not found: ${sku}`, 'error')
+        addToast(`Not found: ${barcode}`, 'error')
       }
     } catch (err) {
-      addToast(`Error looking up ${sku}`, 'error')
+      addToast(`Error: ${barcode}`, 'error')
     }
   }, [addToCart, addToast])
   
