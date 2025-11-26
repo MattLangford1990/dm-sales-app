@@ -634,27 +634,29 @@ async def create_order(
 ):
     """Create a new sales order"""
     try:
-        # Build line items for Zoho
+        # Build line items for Zoho - only include fields Zoho expects
         line_items = []
         for item in order.line_items:
             line_item = {
                 "item_id": item.item_id,
-                "name": item.name,
                 "quantity": item.quantity,
                 "rate": item.rate
             }
             if item.discount_percent > 0:
-                line_item["discount"] = f"{item.discount_percent}%"
+                line_item["discount"] = item.discount_percent
             line_items.append(line_item)
         
         order_data = {
             "customer_id": order.customer_id,
+            "date": datetime.now().strftime("%Y-%m-%d"),
             "line_items": line_items,
             "notes": f"Order placed by {agent.agent_name}\n{order.notes or ''}".strip()
         }
         
         if order.reference_number:
             order_data["reference_number"] = order.reference_number
+        
+        print(f"ORDER DEBUG: Sending to Zoho: {order_data}")
         
         response = await zoho_api.create_sales_order(order_data)
         salesorder = response.get("salesorder", {})
@@ -667,6 +669,7 @@ async def create_order(
             "message": "Order created successfully"
         }
     except Exception as e:
+        print(f"ORDER ERROR: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
