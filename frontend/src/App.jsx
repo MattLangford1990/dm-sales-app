@@ -812,18 +812,34 @@ function CartTab({ onOrderSubmitted }) {
           <div className="divide-y">
             {cart.map(item => (
               <div key={item.item_id} className="p-4">
-                <div className="flex justify-between items-start mb-2">
-                  <div className="flex-1">
-                    <h3 className="font-medium text-gray-800">{item.name}</h3>
-                    <p className="text-sm text-gray-500">{item.sku}</p>
-                    <p className="text-primary-600 font-medium">£{item.rate?.toFixed(2)} each</p>
+                <div className="flex gap-3 mb-2">
+                  <div className="w-16 h-16 bg-gray-100 rounded-lg flex-shrink-0 overflow-hidden">
+                    <img
+                      src={`/api/products/${item.item_id}/image`}
+                      alt={item.name}
+                      className="w-full h-full object-cover"
+                      onError={(e) => {
+                        e.target.style.display = 'none'
+                        e.target.nextSibling.style.display = 'flex'
+                      }}
+                    />
+                    <span className="text-2xl hidden items-center justify-center w-full h-full">📦</span>
                   </div>
-                  <button
-                    onClick={() => updateQuantity(item.item_id, 0)}
-                    className="text-red-500 text-sm"
-                  >
-                    Remove
-                  </button>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex justify-between items-start">
+                      <div className="flex-1 min-w-0 pr-2">
+                        <h3 className="font-medium text-gray-800 truncate">{item.name}</h3>
+                        <p className="text-sm text-gray-500">{item.sku}</p>
+                        <p className="text-primary-600 font-medium">£{item.rate?.toFixed(2)} each</p>
+                      </div>
+                      <button
+                        onClick={() => updateQuantity(item.item_id, 0)}
+                        className="text-red-500 text-sm flex-shrink-0"
+                      >
+                        Remove
+                      </button>
+                    </div>
+                  </div>
                 </div>
                 
                 <div className="flex items-center gap-4">
