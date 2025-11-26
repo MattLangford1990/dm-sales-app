@@ -335,6 +335,66 @@ function LoadingSpinner() {
   )
 }
 
+function ProductDetailModal({ product, onClose, onAddToCart }) {
+  if (!product) return null
+  
+  return (
+    <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4" onClick={onClose}>
+      <div className="bg-white rounded-2xl max-w-lg w-full max-h-[90vh] overflow-auto" onClick={e => e.stopPropagation()}>
+        <div className="relative">
+          <button
+            onClick={onClose}
+            className="absolute top-3 right-3 bg-white/80 rounded-full w-10 h-10 flex items-center justify-center text-2xl z-10 shadow"
+          >
+            ×
+          </button>
+          <div className="aspect-square bg-gray-100">
+            <img
+              src={`/api/products/${product.item_id}/image`}
+              alt={product.name}
+              className="w-full h-full object-contain"
+              onError={(e) => {
+                e.target.style.display = 'none'
+                e.target.nextSibling.style.display = 'flex'
+              }}
+            />
+            <span className="text-6xl hidden items-center justify-center w-full h-full">📦</span>
+          </div>
+        </div>
+        
+        <div className="p-4 space-y-3">
+          <p className="text-sm text-gray-500">{product.sku}</p>
+          <h2 className="text-xl font-bold text-gray-800">{product.name}</h2>
+          
+          <div className="flex items-center gap-3">
+            <span className="text-2xl font-bold text-primary-600">£{product.rate?.toFixed(2)}</span>
+            <span className={`text-sm px-3 py-1 rounded-full ${product.stock_on_hand > 0 ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
+              {product.stock_on_hand > 0 ? `${product.stock_on_hand} in stock` : 'Out of stock'}
+            </span>
+          </div>
+          
+          {product.pack_qty && (
+            <span className="inline-block text-sm bg-blue-100 text-blue-700 px-3 py-1 rounded-full font-medium">
+              Pack of {product.pack_qty}
+            </span>
+          )}
+          
+          {product.description && (
+            <p className="text-gray-600 text-sm">{product.description}</p>
+          )}
+          
+          <button
+            onClick={() => { onAddToCart(product); onClose(); }}
+            className="w-full bg-primary-600 text-white py-3 rounded-xl font-semibold text-lg hover:bg-primary-700 transition mt-4"
+          >
+            Add to Cart
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 function LoginPage() {
   const [agentId, setAgentId] = useState('')
   const [pin, setPin] = useState('')
@@ -549,6 +609,7 @@ function ProductsTab() {
   const [page, setPage] = useState(1)
   const [hasMore, setHasMore] = useState(false)
   const [usingOffline, setUsingOffline] = useState(false)
+  const [selectedProduct, setSelectedProduct] = useState(null)
   const { addToCart } = useCart()
   const { agent } = useAuth()
   const { isOnline } = useOffline()
@@ -677,7 +738,10 @@ function ProductsTab() {
                 key={product.item_id}
                 className="bg-white rounded-xl border border-gray-200 overflow-hidden card-touch transition"
               >
-                <div className="aspect-square bg-gray-100 flex items-center justify-center">
+                <div 
+                  className="aspect-square bg-gray-100 flex items-center justify-center cursor-pointer"
+                  onClick={() => setSelectedProduct(product)}
+                >
                   <img
                     src={`/api/products/${product.item_id}/image`}
                     alt={product.name}
@@ -692,7 +756,12 @@ function ProductsTab() {
                 </div>
                 <div className="p-3">
                   <p className="text-xs text-gray-500 mb-1">{product.sku}</p>
-                  <h3 className="font-medium text-gray-800 text-sm line-clamp-2 mb-2">{product.name}</h3>
+                  <h3 
+                    className="font-medium text-gray-800 text-sm line-clamp-2 mb-2 cursor-pointer hover:text-primary-600"
+                    onClick={() => setSelectedProduct(product)}
+                  >
+                    {product.name}
+                  </h3>
                   <div className="flex items-center justify-between mb-2">
                     <span className="font-bold text-primary-600">£{product.rate?.toFixed(2)}</span>
                     <span className={`text-xs px-2 py-1 rounded-full ${
@@ -718,6 +787,14 @@ function ProductsTab() {
               </div>
             ))}
           </div>
+          
+          {selectedProduct && (
+            <ProductDetailModal
+              product={selectedProduct}
+              onClose={() => setSelectedProduct(null)}
+              onAddToCart={addToCart}
+            />
+          )}
         )}
         
         {hasMore && (
