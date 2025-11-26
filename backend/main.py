@@ -552,8 +552,12 @@ async def build_ean_cache():
     
     while True:
         try:
-            response = await zoho_api.get_items(page=page, per_page=200)
+            # Call Zoho directly to get ALL items (no search filter)
+            params = {"page": page, "per_page": 200}
+            response = await zoho_api.zoho_request("GET", "items", params=params)
             items = response.get("items", [])
+            
+            print(f"BARCODE: Page {page} returned {len(items)} items")
             
             if not items:
                 break
@@ -564,6 +568,10 @@ async def build_ean_cache():
                 if ean and item.get("status") != "inactive":
                     _ean_cache[ean] = item
                     total += 1
+                    
+                # Debug: print first item's EAN field to see what we're getting
+                if page == 1 and total <= 3:
+                    print(f"BARCODE DEBUG: Item {item.get('sku')} has ean='{item.get('ean')}', upc='{item.get('upc')}', cf_ean='{item.get('cf_ean')}'")
             
             page += 1
             
@@ -576,7 +584,11 @@ async def build_ean_cache():
             break
     
     _ean_cache_built = True
-    print(f"BARCODE: Cache built with {total} EAN entries")
+    print(f"BARCODE: Cache built with {total} EAN entries from {page-1} pages")
+    
+    # Print some sample EANs for debugging
+    sample_eans = list(_ean_cache.keys())[:5]
+    print(f"BARCODE: Sample EANs in cache: {sample_eans}")
 
 
 @app.get("/api/barcode/{barcode}")
