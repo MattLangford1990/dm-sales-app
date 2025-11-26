@@ -1,7 +1,7 @@
 // IndexedDB wrapper for offline data storage
 
 const DB_NAME = 'dm-sales-offline'
-const DB_VERSION = 1
+const DB_VERSION = 2  // Version 2 adds auth store
 
 let db = null
 
@@ -50,6 +50,11 @@ export async function initDB() {
       if (!database.objectStoreNames.contains('syncMeta')) {
         database.createObjectStore('syncMeta', { keyPath: 'key' })
       }
+      
+      // Auth store for offline login
+      if (!database.objectStoreNames.contains('auth')) {
+        database.createObjectStore('auth', { keyPath: 'agentId' })
+      }
     }
   })
 }
@@ -61,7 +66,70 @@ async function getStore(storeName, mode = 'readonly') {
   return tx.objectStore(storeName)
 }
 
-// Products
+// ============ Auth Functions ============
+
+export async function saveAgentCredentials(agentId, pin, agentData) {
+  const database = await initDB()
+  const tx = database.transaction('auth', 'readwrite')
+  const store = tx.objectStore('auth')
+  
+  // Store with base64 encoded PIN (simple obfuscation for offline use)
+  const pinHash = btoa(pin)
+  store.put({ 
+    agentId, 
+    pinHash, 
+    agentData, 
+    savedAt: new Date().toISOString() 
+  })
+  
+  return new Promise((resolve, reject) => {
+    tx.oncomplete = () => resolve()
+    tx.onerror = () => reject(tx.error)
+  })
+}
+
+export async function verifyOfflineCredentials(agentId, pin) {
+  try {
+    const database = await initDB()
+    const tx = database.transaction('auth', 'readonly')
+    const store = tx.objectStore('auth')
+    
+    return new Promise((resolve, reject) => {
+      const request = store.get(agentId)
+      request.onsuccess = () => {
+        const record = request.result
+        if (record && record.pinHash === btoa(pin)) {
+          resolve(record.agentData)
+        } else {
+          resolve(null)
+        }
+      }
+      request.onerror = () => reject(request.error)
+    })
+  } catch (err) {
+    console.error('Offline auth check failed:', err)
+    return null
+  }
+}
+
+export async function getStoredAgents() {
+  try {
+    const database = await initDB()
+    const tx = database.transaction('auth', 'readonly')
+    const store = tx.objectStore('auth')
+    
+    return new Promise((resolve, reject) => {
+      const request = store.getAll()
+      request.onsuccess = () => resolve(request.result || [])
+      request.onerror = () => reject(request.error)
+    })
+  } catch (err) {
+    return []
+  }
+}
+
+// ============ Products ============
+
 export async function saveProducts(products) {
   const database = await initDB()
   const tx = database.transaction('products', 'readwrite')
@@ -156,7 +224,8 @@ export async function clearProducts() {
   })
 }
 
-// Customers
+// ============ Customers ============
+
 export async function saveCustomers(customers) {
   const database = await initDB()
   const tx = database.transaction('customers', 'readwrite')
@@ -205,7 +274,8 @@ export async function clearCustomers() {
   })
 }
 
-// Images - store as base64
+// ============ Images ============
+
 export async function saveImage(itemId, imageBlob) {
   const database = await initDB()
   const tx = database.transaction('images', 'readwrite')
@@ -245,7 +315,8 @@ export async function clearImages() {
   })
 }
 
-// Pending Orders (offline queue)
+// ============ Pending Orders ============
+
 export async function savePendingOrder(orderData) {
   const database = await initDB()
   const tx = database.transaction('pendingOrders', 'readwrite')
@@ -282,7 +353,8 @@ export async function deletePendingOrder(id) {
   })
 }
 
-// Sync metadata
+// ============ Sync Metadata ============
+
 export async function setSyncMeta(key, value) {
   const database = await initDB()
   const tx = database.transaction('syncMeta', 'readwrite')

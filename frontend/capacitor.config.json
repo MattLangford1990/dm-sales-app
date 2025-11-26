@@ -1,0 +1,14 @@
+{
+  "appId": "uk.dmbrands.salesapp",
+  "appName": "DM Sales",
+  "webDir": "dist",
+  "server": {
+    "androidScheme": "https"
+  },
+  "ios": {
+    "contentInset": "automatic"
+  },
+  "android": {
+    "allowMixedContent": true
+  }
+}

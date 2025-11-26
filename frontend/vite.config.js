@@ -16,6 +16,7 @@ export default defineConfig({
         background_color: '#f8fafc',
         display: 'standalone',
         orientation: 'any',
+        start_url: '/',
         icons: [
           {
             src: 'pwa-192x192.png',
@@ -26,6 +27,12 @@ export default defineConfig({
             src: 'pwa-512x512.png',
             sizes: '512x512',
             type: 'image/png'
+          },
+          {
+            src: 'pwa-512x512.png',
+            sizes: '512x512',
+            type: 'image/png',
+            purpose: 'maskable'
           }
         ]
       },
@@ -62,6 +69,14 @@ export default defineConfig({
       }
     })
   ],
+  
+  build: {
+    // Output to dist folder for Capacitor
+    outDir: 'dist',
+    // Generate sourcemaps for debugging
+    sourcemap: true
+  },
+  
   server: {
     host: true,  // Allow access from network (phone)
     proxy: {

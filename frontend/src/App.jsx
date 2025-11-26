@@ -4,7 +4,9 @@ import * as offlineStore from './offlineStore'
 import * as syncService from './syncService'
 
 // API helpers
-const API_BASE = '/api'
+// In native app, use the deployed backend URL. In browser, use relative path (proxied in dev)
+const isNativeApp = window.Capacitor?.isNativePlatform?.() || false
+const API_BASE = isNativeApp ? 'https://dm-sales-app.onrender.com/api' : '/api'
 
 async function apiRequest(endpoint, options = {}) {
   const token = localStorage.getItem('token')
@@ -44,17 +46,60 @@ function AuthProvider({ children }) {
   })
   
   const login = async (agentId, pin) => {
-    const data = await apiRequest('/auth/login', {
-      method: 'POST',
-      body: JSON.stringify({ agent_id: agentId, pin })
-    })
-    localStorage.setItem('token', data.access_token)
-    localStorage.setItem('agent', JSON.stringify({
-      name: data.agent_name,
-      brands: data.brands
-    }))
-    setAgent({ name: data.agent_name, brands: data.brands })
-    return data
+    // Try online login first
+    if (navigator.onLine) {
+      try {
+        const data = await apiRequest('/auth/login', {
+          method: 'POST',
+          body: JSON.stringify({ agent_id: agentId, pin })
+        })
+        
+        localStorage.setItem('token', data.access_token)
+        localStorage.setItem('agent', JSON.stringify({
+          name: data.agent_name,
+          brands: data.brands
+        }))
+        setAgent({ name: data.agent_name, brands: data.brands })
+        
+        // Save credentials for offline use
+        try {
+          await offlineStore.saveAgentCredentials(agentId, pin, {
+            name: data.agent_name,
+            brands: data.brands,
+            token: data.access_token
+          })
+          console.log('Saved credentials for offline use')
+        } catch (err) {
+          console.warn('Failed to save offline credentials:', err)
+        }
+        
+        return data
+      } catch (err) {
+        // If online but login failed, don't fall back to offline
+        throw err
+      }
+    }
+    
+    // Offline - try local credentials
+    console.log('Attempting offline login...')
+    const offlineData = await offlineStore.verifyOfflineCredentials(agentId, pin)
+    
+    if (offlineData) {
+      localStorage.setItem('token', offlineData.token || 'offline-token')
+      localStorage.setItem('agent', JSON.stringify({
+        name: offlineData.name,
+        brands: offlineData.brands
+      }))
+      setAgent({ name: offlineData.name, brands: offlineData.brands })
+      
+      return {
+        access_token: offlineData.token || 'offline-token',
+        agent_name: offlineData.name,
+        brands: offlineData.brands
+      }
+    }
+    
+    throw new Error('Invalid credentials or no offline data available. Please login online first.')
   }
   
   const logout = () => {
@@ -295,8 +340,28 @@ function LoginPage() {
   const [pin, setPin] = useState('')
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
+  const [isOnline, setIsOnline] = useState(navigator.onLine)
+  const [storedAgents, setStoredAgents] = useState([])
   const { login } = useAuth()
   const navigate = useNavigate()
+  
+  useEffect(() => {
+    const handleOnline = () => setIsOnline(true)
+    const handleOffline = () => setIsOnline(false)
+    
+    window.addEventListener('online', handleOnline)
+    window.addEventListener('offline', handleOffline)
+    
+    // Load stored agents for offline login
+    offlineStore.getStoredAgents().then(agents => {
+      setStoredAgents(agents)
+    })
+    
+    return () => {
+      window.removeEventListener('online', handleOnline)
+      window.removeEventListener('offline', handleOffline)
+    }
+  }, [])
   
   const handleSubmit = async (e) => {
     e.preventDefault()
@@ -316,6 +381,21 @@ function LoginPage() {
   return (
     <div className="min-h-screen bg-gradient-to-br from-primary-600 to-primary-800 flex items-center justify-center p-6">
       <div className="bg-white rounded-2xl shadow-xl p-8 w-full max-w-md">
+        {/* Offline Banner */}
+        {!isOnline && (
+          <div className="mb-6 p-3 bg-orange-100 border border-orange-200 rounded-xl">
+            <div className="flex items-center gap-2 text-orange-800">
+              <span className="text-xl">📴</span>
+              <span className="font-medium">Offline Mode</span>
+            </div>
+            <p className="text-sm text-orange-600 mt-1">
+              {storedAgents.length > 0 
+                ? `${storedAgents.length} agent(s) available for offline login`
+                : 'No offline logins available. Connect to internet first.'}
+            </p>
+          </div>
+        )}
+        
         <div className="text-center mb-8">
           <h1 className="text-3xl font-bold text-gray-800">DM Sales</h1>
           <p className="text-gray-500 mt-2">Sign in to continue</p>
@@ -356,11 +436,18 @@ function LoginPage() {
           
           <button
             type="submit"
-            disabled={loading || !agentId || !pin}
+            disabled={loading || !agentId || !pin || (!isOnline && storedAgents.length === 0)}
             className="w-full bg-primary-600 text-white py-4 rounded-xl font-semibold text-lg hover:bg-primary-700 disabled:opacity-50 disabled:cursor-not-allowed transition touch-target"
           >
-            {loading ? 'Signing in...' : 'Sign In'}
+            {loading ? 'Signing in...' : isOnline ? 'Sign In' : 'Sign In (Offline)'}
           </button>
+          
+          {/* Offline agent hints */}
+          {!isOnline && storedAgents.length > 0 && (
+            <div className="text-center text-sm text-gray-500">
+              <p>Available offline: {storedAgents.map(a => a.agentId).join(', ')}</p>
+            </div>
+          )}
         </form>
       </div>
     </div>
