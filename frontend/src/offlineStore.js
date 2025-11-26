@@ -127,8 +127,22 @@ export async function getProductBySKU(sku) {
   const index = store.index('sku')
   
   return new Promise((resolve, reject) => {
+    // Try exact match first
     const request = index.get(sku.toUpperCase())
-    request.onsuccess = () => resolve(request.result)
+    request.onsuccess = () => {
+      if (request.result) {
+        resolve(request.result)
+      } else {
+        // Try case-insensitive search through all
+        const allRequest = store.getAll()
+        allRequest.onsuccess = () => {
+          const skuUpper = sku.toUpperCase()
+          const found = allRequest.result.find(p => p.sku?.toUpperCase() === skuUpper)
+          resolve(found || null)
+        }
+        allRequest.onerror = () => reject(allRequest.error)
+      }
+    }
     request.onerror = () => reject(request.error)
   })
 }

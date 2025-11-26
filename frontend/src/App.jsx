@@ -180,6 +180,12 @@ function OfflineProvider({ children }) {
   const [syncStatus, setSyncStatus] = useState(null)
   const [isSyncing, setIsSyncing] = useState(false)
   
+  const refreshSyncStatus = async () => {
+    const status = await syncService.getSyncStatus()
+    setSyncStatus(status)
+    return status
+  }
+  
   useEffect(() => {
     const handleOnline = () => setIsOnline(true)
     const handleOffline = () => setIsOnline(false)
@@ -188,7 +194,7 @@ function OfflineProvider({ children }) {
     window.addEventListener('offline', handleOffline)
     
     // Load sync status on mount
-    syncService.getSyncStatus().then(setSyncStatus)
+    refreshSyncStatus()
     
     return () => {
       window.removeEventListener('online', handleOnline)
@@ -200,9 +206,7 @@ function OfflineProvider({ children }) {
     setIsSyncing(true)
     try {
       await syncService.fullSync({ includeImages: false }, onProgress)
-      const status = await syncService.getSyncStatus()
-      setSyncStatus(status)
-      return status
+      await refreshSyncStatus()
     } finally {
       setIsSyncing(false)
     }
@@ -211,8 +215,7 @@ function OfflineProvider({ children }) {
   const submitPendingOrders = async () => {
     if (!isOnline) return { submitted: 0, failed: 0 }
     const result = await syncService.submitPendingOrders()
-    const status = await syncService.getSyncStatus()
-    setSyncStatus(status)
+    await refreshSyncStatus()
     return result
   }
   
@@ -222,7 +225,8 @@ function OfflineProvider({ children }) {
       syncStatus,
       isSyncing,
       doSync,
-      submitPendingOrders
+      submitPendingOrders,
+      refreshSyncStatus
     }}>
       {children}
     </OfflineContext.Provider>
@@ -457,34 +461,56 @@ function ProductsTab() {
   const [search, setSearch] = useState('')
   const [page, setPage] = useState(1)
   const [hasMore, setHasMore] = useState(false)
+  const [usingOffline, setUsingOffline] = useState(false)
   const { addToCart } = useCart()
   const { agent } = useAuth()
+  const { isOnline } = useOffline()
   
   const loadProducts = async (reset = false) => {
     setLoading(true)
-    try {
-      const currentPage = reset ? 1 : page
-      const params = new URLSearchParams({ page: currentPage })
-      if (search) params.append('search', search)
-      if (selectedBrand) params.append('brand', selectedBrand)
-      
-      const data = await apiRequest(`/products?${params}`)
-      
-      setProducts(reset ? data.products : [...products, ...data.products])
-      setHasMore(data.has_more)
-      if (reset) setPage(1)
-    } catch (err) {
-      console.error('Failed to load products:', err)
-    } finally {
-      setLoading(false)
+    
+    // Try online first, fall back to offline
+    if (isOnline) {
+      try {
+        const currentPage = reset ? 1 : page
+        const params = new URLSearchParams({ page: currentPage })
+        if (search) params.append('search', search)
+        if (selectedBrand) params.append('brand', selectedBrand)
+        
+        const data = await apiRequest(`/products?${params}`)
+        
+        setProducts(reset ? data.products : [...products, ...data.products])
+        setHasMore(data.has_more)
+        setUsingOffline(false)
+        if (reset) setPage(1)
+        setLoading(false)
+        return
+      } catch (err) {
+        console.log('Online fetch failed, trying offline:', err)
+      }
     }
+    
+    // Use offline data
+    try {
+      const offlineProducts = await offlineStore.getProducts({
+        brand: selectedBrand,
+        search: search
+      })
+      setProducts(offlineProducts)
+      setHasMore(false)
+      setUsingOffline(true)
+    } catch (err) {
+      console.error('Failed to load offline products:', err)
+      setProducts([])
+    }
+    setLoading(false)
   }
   
   useEffect(() => {
     if (selectedBrand) {
       loadProducts(true)
     }
-  }, [search, selectedBrand])
+  }, [search, selectedBrand, isOnline])
   
   // Show brand selector first
   if (!selectedBrand) {
@@ -531,6 +557,11 @@ function ProductsTab() {
             ←
           </button>
           <span className="font-semibold text-gray-800">{selectedBrand}</span>
+          {usingOffline && (
+            <span className="ml-auto text-xs bg-orange-100 text-orange-700 px-2 py-1 rounded-full">
+              Offline
+            </span>
+          )}
         </div>
         <input
           type="search"
@@ -544,6 +575,14 @@ function ProductsTab() {
       <div className="flex-1 overflow-y-auto p-4">
         {loading && products.length === 0 ? (
           <LoadingSpinner />
+        ) : products.length === 0 ? (
+          <div className="flex flex-col items-center justify-center h-full text-gray-500">
+            <span className="text-5xl mb-4">📦</span>
+            <p className="text-center">No products found</p>
+            {!isOnline && (
+              <p className="text-sm text-orange-600 mt-2">Sync data in Settings for offline access</p>
+            )}
+          </div>
         ) : (
           <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
             {products.map(product => (
@@ -615,25 +654,43 @@ function CustomersTab() {
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
   const [showNewForm, setShowNewForm] = useState(false)
+  const [usingOffline, setUsingOffline] = useState(false)
   const { setCustomer, customer: selectedCustomer } = useCart()
+  const { isOnline } = useOffline()
   
   const loadCustomers = async () => {
     setLoading(true)
-    try {
-      const params = new URLSearchParams()
-      if (search) params.append('search', search)
-      const data = await apiRequest(`/customers?${params}`)
-      setCustomers(data.customers)
-    } catch (err) {
-      console.error('Failed to load customers:', err)
-    } finally {
-      setLoading(false)
+    
+    // Try online first
+    if (isOnline) {
+      try {
+        const params = new URLSearchParams()
+        if (search) params.append('search', search)
+        const data = await apiRequest(`/customers?${params}`)
+        setCustomers(data.customers)
+        setUsingOffline(false)
+        setLoading(false)
+        return
+      } catch (err) {
+        console.log('Online fetch failed, trying offline:', err)
+      }
     }
+    
+    // Use offline data
+    try {
+      const offlineCustomers = await offlineStore.getCustomers(search)
+      setCustomers(offlineCustomers)
+      setUsingOffline(true)
+    } catch (err) {
+      console.error('Failed to load offline customers:', err)
+      setCustomers([])
+    }
+    setLoading(false)
   }
   
   useEffect(() => {
     loadCustomers()
-  }, [search])
+  }, [search, isOnline])
   
   const handleSelectCustomer = (customer) => {
     setCustomer(customer)
@@ -646,18 +703,26 @@ function CustomersTab() {
   return (
     <div className="flex flex-col h-full">
       <div className="p-4 bg-gray-50 border-b space-y-3">
-        <input
-          type="search"
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          placeholder="Search customers..."
-          className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-primary-500 focus:border-transparent outline-none"
-        />
+        <div className="flex items-center gap-2">
+          <input
+            type="search"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search customers..."
+            className="flex-1 px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-primary-500 focus:border-transparent outline-none"
+          />
+          {usingOffline && (
+            <span className="text-xs bg-orange-100 text-orange-700 px-2 py-1 rounded-full whitespace-nowrap">
+              Offline
+            </span>
+          )}
+        </div>
         <button
           onClick={() => setShowNewForm(true)}
-          className="w-full bg-green-600 text-white py-3 rounded-xl font-medium hover:bg-green-700 transition"
+          disabled={!isOnline}
+          className="w-full bg-green-600 text-white py-3 rounded-xl font-medium hover:bg-green-700 disabled:bg-gray-400 transition"
         >
-          + New Customer
+          {isOnline ? '+ New Customer' : 'Go online to add customers'}
         </button>
       </div>
       
@@ -810,6 +875,8 @@ function NewCustomerForm({ onBack, onCreated }) {
 
 function CartTab({ onOrderSubmitted }) {
   const { cart, customer, cartTotal, updateQuantity, updateDiscount, clearCart } = useCart()
+  const { isOnline, refreshSyncStatus } = useOffline()
+  const { addToast } = useToast()
   const [loading, setLoading] = useState(false)
   const [exporting, setExporting] = useState(false)
   const [error, setError] = useState('')
@@ -880,21 +947,38 @@ function CartTab({ onOrderSubmitted }) {
     setLoading(true)
     setError('')
     
-    try {
-      const orderData = {
-        customer_id: customer.contact_id,
-        customer_name: customer.company_name,
-        notes,
-        line_items: cart.map(item => ({
-          item_id: item.item_id,
-          name: item.name,
-          sku: item.sku,
-          quantity: item.quantity,
-          rate: item.rate,
-          discount_percent: item.discount
-        }))
+    const orderData = {
+      customer_id: customer.contact_id,
+      customer_name: customer.company_name,
+      notes,
+      line_items: cart.map(item => ({
+        item_id: item.item_id,
+        name: item.name,
+        sku: item.sku,
+        quantity: item.quantity,
+        rate: item.rate,
+        discount_percent: item.discount
+      }))
+    }
+    
+    // If offline, save to pending queue
+    if (!isOnline) {
+      try {
+        await offlineStore.savePendingOrder({ orderData })
+        clearCart()
+        setNotes('')
+        addToast('Order saved! Will submit when back online.', 'success')
+        // Refresh sync status to update pending count
+        await refreshSyncStatus()
+      } catch (err) {
+        setError('Failed to save offline order')
       }
-      
+      setLoading(false)
+      return
+    }
+    
+    // Online - submit normally
+    try {
       const result = await apiRequest('/orders', {
         method: 'POST',
         body: JSON.stringify(orderData)
@@ -1041,9 +1125,11 @@ function CartTab({ onOrderSubmitted }) {
             <button
               onClick={handleSubmitOrder}
               disabled={loading || !customer}
-              className="flex-1 bg-green-600 text-white py-4 rounded-xl font-semibold text-lg hover:bg-green-700 disabled:opacity-50 transition"
+              className={`flex-1 text-white py-4 rounded-xl font-semibold text-lg disabled:opacity-50 transition ${
+                isOnline ? 'bg-green-600 hover:bg-green-700' : 'bg-orange-500 hover:bg-orange-600'
+              }`}
             >
-              {loading ? 'Submitting...' : 'Submit Order'}
+              {loading ? 'Saving...' : isOnline ? 'Submit Order' : '📴 Save Offline'}
             </button>
           </div>
         </div>
@@ -1124,6 +1210,7 @@ function QuickOrderTab() {
   const [results, setResults] = useState([])
   const [loading, setLoading] = useState(false)
   const { addToCart } = useCart()
+  const { isOnline } = useOffline()
   
   const handleLookup = async () => {
     if (!input.trim()) return
@@ -1141,58 +1228,62 @@ function QuickOrderTab() {
       const code = parts[0].toUpperCase()
       const qty = parseInt(parts[1]) || 1
       
+      // Try online first
+      if (isOnline) {
+        try {
+          const barcodeData = await apiRequest(`/barcode/${encodeURIComponent(code)}`)
+          
+          if (barcodeData.found && barcodeData.product) {
+            lookupResults.push({
+              sku: code,
+              qty,
+              found: true,
+              product: barcodeData.product
+            })
+            continue
+          }
+          
+          // Fall back to SKU search
+          const data = await apiRequest(`/products?search=${encodeURIComponent(code)}`)
+          const products = data.products || []
+          const exactMatch = products.find(p => p.sku?.toUpperCase() === code)
+          
+          if (exactMatch) {
+            lookupResults.push({ sku: code, qty, found: true, product: exactMatch })
+            continue
+          } else if (products.length > 0) {
+            lookupResults.push({ sku: code, qty, found: true, product: products[0], partial: true })
+            continue
+          }
+        } catch (err) {
+          console.log('Online lookup failed for', code)
+        }
+      }
+      
+      // Try offline lookup
       try {
-        // First try barcode/EAN lookup
-        const barcodeData = await apiRequest(`/barcode/${encodeURIComponent(code)}`)
+        let product = await offlineStore.getProductByEAN(code)
+        if (!product) {
+          product = await offlineStore.getProductBySKU(code)
+        }
+        if (!product) {
+          // Search by name/sku in offline store
+          const offlineProducts = await offlineStore.getProducts({ search: code })
+          if (offlineProducts.length > 0) {
+            product = offlineProducts[0]
+          }
+        }
         
-        if (barcodeData.found && barcodeData.product) {
-          lookupResults.push({
-            sku: code,
-            qty,
-            found: true,
-            product: barcodeData.product
-          })
+        if (product) {
+          lookupResults.push({ sku: code, qty, found: true, product })
           continue
         }
-        
-        // Fall back to SKU search
-        const data = await apiRequest(`/products?search=${encodeURIComponent(code)}`)
-        const products = data.products || []
-        
-        // Find exact SKU match
-        const exactMatch = products.find(p => p.sku?.toUpperCase() === code)
-        
-        if (exactMatch) {
-          lookupResults.push({
-            sku: code,
-            qty,
-            found: true,
-            product: exactMatch
-          })
-        } else if (products.length > 0) {
-          // Partial match - show first result
-          lookupResults.push({
-            sku: code,
-            qty,
-            found: true,
-            product: products[0],
-            partial: true
-          })
-        } else {
-          lookupResults.push({
-            sku: code,
-            qty,
-            found: false
-          })
-        }
       } catch (err) {
-        lookupResults.push({
-          sku: code,
-          qty,
-          found: false,
-          error: err.message
-        })
+        console.error('Offline lookup failed:', err)
       }
+      
+      // Not found
+      lookupResults.push({ sku: code, qty, found: false })
     }
     
     setResults(lookupResults)
@@ -1523,24 +1614,47 @@ function TabBar({ activeTab, setActiveTab }) {
 function BarcodeHandler({ children }) {
   const { addToCart } = useCart()
   const { addToast } = useToast()
+  const { isOnline } = useOffline()
   
   const handleBarcodeScan = useCallback(async (barcode) => {
     addToast(`Scanning: ${barcode}...`, 'info')
     
+    // Try online first
+    if (isOnline) {
+      try {
+        const data = await apiRequest(`/barcode/${encodeURIComponent(barcode)}`)
+        
+        if (data.found && data.product) {
+          addToCart(data.product, 1)
+          addToast(`Added: ${data.product.name}`, 'success')
+          return
+        }
+      } catch (err) {
+        console.log('Online barcode lookup failed, trying offline')
+      }
+    }
+    
+    // Try offline lookup
     try {
-      // Use barcode lookup endpoint (searches by EAN first, then SKU)
-      const data = await apiRequest(`/barcode/${encodeURIComponent(barcode)}`)
+      // First try EAN
+      let product = await offlineStore.getProductByEAN(barcode)
       
-      if (data.found && data.product) {
-        addToCart(data.product, 1)
-        addToast(`Added: ${data.product.name}`, 'success')
-      } else {
-        addToast(`Not found: ${barcode}`, 'error')
+      // Then try SKU
+      if (!product) {
+        product = await offlineStore.getProductBySKU(barcode)
+      }
+      
+      if (product) {
+        addToCart(product, 1)
+        addToast(`Added: ${product.name}`, 'success')
+        return
       }
     } catch (err) {
-      addToast(`Error: ${barcode}`, 'error')
+      console.error('Offline lookup failed:', err)
     }
-  }, [addToCart, addToast])
+    
+    addToast(`Not found: ${barcode}`, 'error')
+  }, [addToCart, addToast, isOnline])
   
   useBarcodeScanner(handleBarcodeScan)
   
