@@ -187,8 +187,26 @@ async def get_item_image(item_id: str) -> bytes:
     # Check if we have the document ID cached
     doc_id = _doc_id_cache.get(item_id)
     
+    # If not cached, fetch items list to find it
     if not doc_id:
-        print(f"IMAGE: No document ID cached for {item_id}")
+        print(f"IMAGE: Doc ID not cached, fetching items list for {item_id}")
+        # Search through items to find this one and cache its doc_id
+        result = await get_items(page=1, per_page=200)
+        doc_id = _doc_id_cache.get(item_id)
+        
+        # If still not found, try a few more pages
+        if not doc_id:
+            page_info = result.get("page_context", {})
+            total_pages = page_info.get("total_pages", 1)
+            for page in range(2, min(total_pages + 1, 6)):  # Check up to 5 pages
+                if item_id in _doc_id_cache:
+                    doc_id = _doc_id_cache[item_id]
+                    break
+                await get_items(page=page, per_page=200)
+            doc_id = _doc_id_cache.get(item_id)
+    
+    if not doc_id:
+        print(f"IMAGE: No document ID found for {item_id}")
         return None
     
     # Use semaphore to limit concurrent requests
