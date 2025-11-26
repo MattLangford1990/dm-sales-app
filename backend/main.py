@@ -1,7 +1,7 @@
 from fastapi import FastAPI, HTTPException, Depends, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
-from fastapi.responses import Response, FileResponse
+from fastapi.responses import Response, FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from datetime import datetime, timedelta
@@ -9,6 +9,7 @@ from jose import JWTError, jwt
 from typing import Optional, List, Dict
 import re
 import os
+import io
 
 import json
 from config import get_settings
@@ -848,6 +849,159 @@ async def get_order(
         response = await zoho_api.get_sales_order(salesorder_id)
         return response.get("salesorder", {})
     except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ============ Export Quote ============
+
+class ExportItem(BaseModel):
+    item_id: str
+    name: str
+    sku: str
+    ean: Optional[str] = None
+    rate: float
+    quantity: int
+
+class ExportRequest(BaseModel):
+    items: List[ExportItem]
+    customer_name: Optional[str] = None
+
+@app.post("/api/export/quote")
+async def export_quote(
+    request: ExportRequest,
+    agent: TokenData = Depends(get_current_agent)
+):
+    """Export cart as Excel quote with images"""
+    try:
+        from openpyxl import Workbook
+        from openpyxl.drawing.image import Image as XLImage
+        from openpyxl.utils import get_column_letter
+        from openpyxl.styles import Font, Alignment, Border, Side, PatternFill
+        from PIL import Image
+        
+        wb = Workbook()
+        ws = wb.active
+        ws.title = "Quote"
+        
+        # Set up header style
+        header_font = Font(bold=True, color="FFFFFF")
+        header_fill = PatternFill(start_color="4472C4", end_color="4472C4", fill_type="solid")
+        header_alignment = Alignment(horizontal="center", vertical="center")
+        thin_border = Border(
+            left=Side(style='thin'),
+            right=Side(style='thin'),
+            top=Side(style='thin'),
+            bottom=Side(style='thin')
+        )
+        
+        # Set column widths
+        ws.column_dimensions['A'].width = 15  # Image
+        ws.column_dimensions['B'].width = 40  # Description
+        ws.column_dimensions['C'].width = 15  # SKU
+        ws.column_dimensions['D'].width = 18  # EAN
+        ws.column_dimensions['E'].width = 10  # Qty
+        ws.column_dimensions['F'].width = 12  # Price
+        ws.column_dimensions['G'].width = 12  # Total
+        
+        # Add title
+        if request.customer_name:
+            ws.merge_cells('A1:G1')
+            ws['A1'] = f"Quote for {request.customer_name}"
+            ws['A1'].font = Font(bold=True, size=14)
+            ws['A1'].alignment = Alignment(horizontal="center")
+            start_row = 3
+        else:
+            start_row = 1
+        
+        # Add headers
+        headers = ['Image', 'Description', 'SKU', 'EAN', 'Qty', 'Unit Price', 'Total']
+        for col, header in enumerate(headers, 1):
+            cell = ws.cell(row=start_row, column=col, value=header)
+            cell.font = header_font
+            cell.fill = header_fill
+            cell.alignment = header_alignment
+            cell.border = thin_border
+        
+        ws.row_dimensions[start_row].height = 25
+        
+        # Add items
+        current_row = start_row + 1
+        grand_total = 0
+        
+        for item in request.items:
+            # Set row height for image
+            ws.row_dimensions[current_row].height = 75
+            
+            # Try to fetch and add image
+            try:
+                image_data = await zoho_api.get_item_image(item.item_id)
+                if image_data:
+                    # Convert to PIL Image and resize
+                    img = Image.open(io.BytesIO(image_data))
+                    img.thumbnail((90, 90), Image.Resampling.LANCZOS)
+                    
+                    # Save to bytes
+                    img_bytes = io.BytesIO()
+                    img.save(img_bytes, format='PNG')
+                    img_bytes.seek(0)
+                    
+                    # Add to Excel
+                    xl_img = XLImage(img_bytes)
+                    xl_img.width = 90
+                    xl_img.height = 90
+                    ws.add_image(xl_img, f'A{current_row}')
+            except Exception as img_err:
+                print(f"IMAGE EXPORT ERROR: {img_err}")
+            
+            # Add item details
+            line_total = item.rate * item.quantity
+            grand_total += line_total
+            
+            ws.cell(row=current_row, column=2, value=item.name).border = thin_border
+            ws.cell(row=current_row, column=3, value=item.sku).border = thin_border
+            ws.cell(row=current_row, column=4, value=item.ean or '').border = thin_border
+            ws.cell(row=current_row, column=5, value=item.quantity).border = thin_border
+            ws.cell(row=current_row, column=5).alignment = Alignment(horizontal="center")
+            
+            price_cell = ws.cell(row=current_row, column=6, value=item.rate)
+            price_cell.number_format = '£#,##0.00'
+            price_cell.border = thin_border
+            
+            total_cell = ws.cell(row=current_row, column=7, value=line_total)
+            total_cell.number_format = '£#,##0.00'
+            total_cell.border = thin_border
+            
+            # Center align
+            for col in [3, 4]:
+                ws.cell(row=current_row, column=col).alignment = Alignment(horizontal="center")
+            
+            current_row += 1
+        
+        # Add grand total
+        current_row += 1
+        ws.cell(row=current_row, column=6, value="TOTAL:").font = Font(bold=True)
+        total_cell = ws.cell(row=current_row, column=7, value=grand_total)
+        total_cell.font = Font(bold=True)
+        total_cell.number_format = '£#,##0.00'
+        
+        # Save to bytes
+        output = io.BytesIO()
+        wb.save(output)
+        output.seek(0)
+        
+        # Generate filename
+        date_str = datetime.now().strftime("%Y%m%d")
+        customer_part = request.customer_name.replace(' ', '_')[:20] if request.customer_name else 'Quote'
+        filename = f"{customer_part}_{date_str}.xlsx"
+        
+        return StreamingResponse(
+            output,
+            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            headers={"Content-Disposition": f"attachment; filename={filename}"}
+        )
+        
+    except Exception as e:
+        print(f"EXPORT ERROR: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 

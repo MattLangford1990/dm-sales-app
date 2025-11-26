@@ -742,8 +742,60 @@ function NewCustomerForm({ onBack, onCreated }) {
 function CartTab({ onOrderSubmitted }) {
   const { cart, customer, cartTotal, updateQuantity, updateDiscount, clearCart } = useCart()
   const [loading, setLoading] = useState(false)
+  const [exporting, setExporting] = useState(false)
   const [error, setError] = useState('')
   const [notes, setNotes] = useState('')
+  
+  const handleExportQuote = async () => {
+    if (cart.length === 0) {
+      setError('Cart is empty')
+      return
+    }
+    
+    setExporting(true)
+    setError('')
+    
+    try {
+      const token = localStorage.getItem('token')
+      const response = await fetch('/api/export/quote', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          items: cart.map(item => ({
+            item_id: item.item_id,
+            name: item.name,
+            sku: item.sku,
+            ean: item.ean || '',
+            rate: item.rate,
+            quantity: item.quantity
+          })),
+          customer_name: customer?.company_name || null
+        })
+      })
+      
+      if (!response.ok) {
+        throw new Error('Export failed')
+      }
+      
+      // Download the file
+      const blob = await response.blob()
+      const url = window.URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = response.headers.get('Content-Disposition')?.split('filename=')[1] || 'quote.xlsx'
+      document.body.appendChild(a)
+      a.click()
+      window.URL.revokeObjectURL(url)
+      a.remove()
+    } catch (err) {
+      setError(err.message)
+    } finally {
+      setExporting(false)
+    }
+  }
   
   const handleSubmitOrder = async () => {
     if (!customer) {
@@ -909,13 +961,22 @@ function CartTab({ onOrderSubmitted }) {
             </div>
           )}
           
-          <button
-            onClick={handleSubmitOrder}
-            disabled={loading || !customer}
-            className="w-full bg-green-600 text-white py-4 rounded-xl font-semibold text-lg hover:bg-green-700 disabled:opacity-50 transition"
-          >
-            {loading ? 'Submitting...' : 'Submit Order'}
-          </button>
+          <div className="flex gap-3">
+            <button
+              onClick={handleExportQuote}
+              disabled={exporting}
+              className="flex-1 bg-blue-600 text-white py-4 rounded-xl font-semibold text-lg hover:bg-blue-700 disabled:opacity-50 transition"
+            >
+              {exporting ? 'Exporting...' : '📄 Export Quote'}
+            </button>
+            <button
+              onClick={handleSubmitOrder}
+              disabled={loading || !customer}
+              className="flex-1 bg-green-600 text-white py-4 rounded-xl font-semibold text-lg hover:bg-green-700 disabled:opacity-50 transition"
+            >
+              {loading ? 'Submitting...' : 'Submit Order'}
+            </button>
+          </div>
         </div>
       )}
     </div>
@@ -1236,8 +1297,8 @@ function TabBar({ activeTab, setActiveTab }) {
             <span className="text-2xl">{tab.icon}</span>
             <span className="text-xs mt-1 font-medium">{tab.label}</span>
             {tab.badge > 0 && (
-              <span className="absolute top-1 right-1/4 bg-red-500 text-white text-xs w-5 h-5 rounded-full flex items-center justify-center font-bold">
-                {tab.badge > 9 ? '9+' : tab.badge}
+              <span className="absolute top-1 right-1/4 bg-red-500 text-white text-xs min-w-5 h-5 px-1 rounded-full flex items-center justify-center font-bold">
+                {tab.badge}
               </span>
             )}
           </button>
