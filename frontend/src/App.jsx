@@ -960,14 +960,102 @@ function NewCustomerForm({ onBack, onCreated }) {
   )
 }
 
+function CustomerSelectModal({ onSelect, onClose }) {
+  const [customers, setCustomers] = useState([])
+  const [loading, setLoading] = useState(true)
+  const [search, setSearch] = useState('')
+  const { isOnline } = useOffline()
+  
+  const loadCustomers = async () => {
+    setLoading(true)
+    
+    if (isOnline) {
+      try {
+        const params = new URLSearchParams()
+        if (search) params.append('search', search)
+        const data = await apiRequest(`/customers?${params}`)
+        setCustomers(data.customers)
+        setLoading(false)
+        return
+      } catch (err) {
+        console.log('Online fetch failed, trying offline:', err)
+      }
+    }
+    
+    try {
+      const offlineCustomers = await offlineStore.getCustomers(search)
+      setCustomers(offlineCustomers)
+    } catch (err) {
+      console.error('Failed to load offline customers:', err)
+      setCustomers([])
+    }
+    setLoading(false)
+  }
+  
+  useEffect(() => {
+    loadCustomers()
+  }, [search, isOnline])
+  
+  return (
+    <div className="fixed inset-0 bg-black/50 flex items-end sm:items-center justify-center z-50">
+      <div className="bg-white rounded-t-2xl sm:rounded-2xl w-full sm:max-w-lg max-h-[80vh] flex flex-col">
+        <div className="p-4 border-b flex items-center justify-between">
+          <h2 className="text-lg font-bold">Select Customer</h2>
+          <button onClick={onClose} className="text-gray-500 text-2xl leading-none">&times;</button>
+        </div>
+        
+        <div className="p-4 border-b">
+          <input
+            type="search"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search customers..."
+            className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-primary-500 focus:border-transparent outline-none"
+            autoFocus
+          />
+        </div>
+        
+        <div className="flex-1 overflow-y-auto">
+          {loading ? (
+            <LoadingSpinner />
+          ) : customers.length === 0 ? (
+            <div className="p-8 text-center text-gray-500">
+              <p>No customers found</p>
+            </div>
+          ) : (
+            <div className="divide-y">
+              {customers.map(customer => (
+                <button
+                  key={customer.contact_id}
+                  onClick={() => { onSelect(customer); onClose(); }}
+                  className="w-full p-4 text-left hover:bg-gray-50 active:bg-gray-100 transition"
+                >
+                  <h3 className="font-medium text-gray-800">{customer.company_name}</h3>
+                  {customer.contact_name && customer.contact_name !== customer.company_name && (
+                    <p className="text-sm text-gray-500">{customer.contact_name}</p>
+                  )}
+                  {customer.email && (
+                    <p className="text-sm text-gray-400">{customer.email}</p>
+                  )}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
 function CartTab({ onOrderSubmitted }) {
-  const { cart, customer, cartTotal, updateQuantity, updateDiscount, clearCart } = useCart()
+  const { cart, customer, setCustomer, cartTotal, updateQuantity, updateDiscount, clearCart } = useCart()
   const { isOnline, refreshSyncStatus } = useOffline()
   const { addToast } = useToast()
   const [loading, setLoading] = useState(false)
   const [exporting, setExporting] = useState(false)
   const [error, setError] = useState('')
   const [notes, setNotes] = useState('')
+  const [showCustomerSelect, setShowCustomerSelect] = useState(false)
   
   const handleExportQuote = async () => {
     if (cart.length === 0) {
@@ -1085,13 +1173,38 @@ function CartTab({ onOrderSubmitted }) {
     <div className="flex flex-col h-full">
       {customer ? (
         <div className="p-4 bg-primary-50 border-b border-primary-200">
-          <p className="text-xs text-primary-600 font-medium">ORDER FOR</p>
-          <p className="font-bold text-gray-800">{customer.company_name}</p>
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-xs text-primary-600 font-medium">ORDER FOR</p>
+              <p className="font-bold text-gray-800">{customer.company_name}</p>
+            </div>
+            <button
+              onClick={() => setShowCustomerSelect(true)}
+              className="text-primary-600 text-sm font-medium px-3 py-1 border border-primary-300 rounded-lg hover:bg-primary-100 transition"
+            >
+              Change
+            </button>
+          </div>
         </div>
       ) : (
         <div className="p-4 bg-yellow-50 border-b border-yellow-200">
-          <p className="text-yellow-800">Please select a customer from the Customers section</p>
+          <div className="flex items-center justify-between">
+            <p className="text-yellow-800">No customer selected</p>
+            <button
+              onClick={() => setShowCustomerSelect(true)}
+              className="bg-yellow-600 text-white text-sm font-medium px-4 py-2 rounded-lg hover:bg-yellow-700 transition"
+            >
+              Select Customer
+            </button>
+          </div>
         </div>
+      )}
+      
+      {showCustomerSelect && (
+        <CustomerSelectModal
+          onSelect={setCustomer}
+          onClose={() => setShowCustomerSelect(false)}
+        />
       )}
       
       <div className="flex-1 overflow-y-auto">
