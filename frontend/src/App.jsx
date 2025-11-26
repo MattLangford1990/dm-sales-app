@@ -1,5 +1,7 @@
 import React, { useState, useEffect, createContext, useContext, useCallback, useRef } from 'react'
 import { Routes, Route, Navigate, useNavigate } from 'react-router-dom'
+import * as offlineStore from './offlineStore'
+import * as syncService from './syncService'
 
 // API helpers
 const API_BASE = '/api'
@@ -169,6 +171,65 @@ function ToastProvider({ children }) {
 }
 
 const useToast = () => useContext(ToastContext)
+
+// Offline Context
+const OfflineContext = createContext(null)
+
+function OfflineProvider({ children }) {
+  const [isOnline, setIsOnline] = useState(navigator.onLine)
+  const [syncStatus, setSyncStatus] = useState(null)
+  const [isSyncing, setIsSyncing] = useState(false)
+  
+  useEffect(() => {
+    const handleOnline = () => setIsOnline(true)
+    const handleOffline = () => setIsOnline(false)
+    
+    window.addEventListener('online', handleOnline)
+    window.addEventListener('offline', handleOffline)
+    
+    // Load sync status on mount
+    syncService.getSyncStatus().then(setSyncStatus)
+    
+    return () => {
+      window.removeEventListener('online', handleOnline)
+      window.removeEventListener('offline', handleOffline)
+    }
+  }, [])
+  
+  const doSync = async (onProgress) => {
+    setIsSyncing(true)
+    try {
+      await syncService.fullSync({ includeImages: false }, onProgress)
+      const status = await syncService.getSyncStatus()
+      setSyncStatus(status)
+      return status
+    } finally {
+      setIsSyncing(false)
+    }
+  }
+  
+  const submitPendingOrders = async () => {
+    if (!isOnline) return { submitted: 0, failed: 0 }
+    const result = await syncService.submitPendingOrders()
+    const status = await syncService.getSyncStatus()
+    setSyncStatus(status)
+    return result
+  }
+  
+  return (
+    <OfflineContext.Provider value={{
+      isOnline,
+      syncStatus,
+      isSyncing,
+      doSync,
+      submitPendingOrders
+    }}>
+      {children}
+    </OfflineContext.Provider>
+  )
+}
+
+const useOffline = () => useContext(OfflineContext)
 
 // Barcode Scanner Hook
 function useBarcodeScanner(onScan) {
@@ -354,28 +415,36 @@ function HomePage({ onNavigate }) {
 
 function PageHeader({ title, onBack }) {
   const { agent, logout } = useAuth()
+  const offline = useOffline()
   
   return (
-    <div className="bg-primary-600 text-white px-4 py-4 safe-area-top">
-      <div className="flex items-center justify-between">
-        <div className="flex items-center">
-          <button
-            onClick={onBack}
-            className="text-primary-200 hover:text-white transition touch-target pr-4 text-2xl"
-          >
-            ←
-          </button>
-          <div>
-            <h1 className="text-xl font-bold">{title}</h1>
-            <p className="text-primary-200 text-sm">{agent?.name}</p>
-          </div>
+    <div className="bg-primary-600 text-white safe-area-top">
+      {!offline?.isOnline && (
+        <div className="bg-orange-500 text-white text-center text-xs py-1 font-medium">
+          📴 Offline Mode - Using cached data
         </div>
-        <button
-          onClick={logout}
-          className="text-primary-200 hover:text-white transition touch-target px-2"
-        >
-          Logout
-        </button>
+      )}
+      <div className="px-4 py-4">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center">
+            <button
+              onClick={onBack}
+              className="text-primary-200 hover:text-white transition touch-target pr-4 text-2xl"
+            >
+              ←
+            </button>
+            <div>
+              <h1 className="text-xl font-bold">{title}</h1>
+              <p className="text-primary-200 text-sm">{agent?.name}</p>
+            </div>
+          </div>
+          <button
+            onClick={logout}
+            className="text-primary-200 hover:text-white transition touch-target px-2"
+          >
+            Logout
+          </button>
+        </div>
       </div>
     </div>
   )
@@ -1272,15 +1341,158 @@ function OrderSuccessModal({ order, onClose }) {
   )
 }
 
+// Settings Tab with Sync Controls
+function SettingsTab() {
+  const { agent, logout } = useAuth()
+  const { isOnline, syncStatus, isSyncing, doSync, submitPendingOrders } = useOffline()
+  const { addToast } = useToast()
+  const [syncProgress, setSyncProgress] = useState('')
+  
+  const handleSync = async () => {
+    if (!isOnline) {
+      addToast('Cannot sync while offline', 'error')
+      return
+    }
+    
+    try {
+      await doSync((progress) => {
+        setSyncProgress(progress.message || '')
+      })
+      setSyncProgress('')
+      addToast('Sync complete!', 'success')
+    } catch (err) {
+      setSyncProgress('')
+      addToast('Sync failed: ' + err.message, 'error')
+    }
+  }
+  
+  const handleSubmitPending = async () => {
+    if (!isOnline) {
+      addToast('Cannot submit orders while offline', 'error')
+      return
+    }
+    
+    try {
+      const result = await submitPendingOrders()
+      if (result.submitted > 0) {
+        addToast(`Submitted ${result.submitted} orders`, 'success')
+      }
+      if (result.failed > 0) {
+        addToast(`${result.failed} orders failed`, 'error')
+      }
+    } catch (err) {
+      addToast('Failed to submit orders', 'error')
+    }
+  }
+  
+  const formatDate = (isoString) => {
+    if (!isoString) return 'Never'
+    const date = new Date(isoString)
+    return date.toLocaleDateString() + ' ' + date.toLocaleTimeString()
+  }
+  
+  return (
+    <div className="h-full overflow-auto p-4 space-y-4">
+      {/* Connection Status */}
+      <div className={`p-4 rounded-lg ${isOnline ? 'bg-green-50 border border-green-200' : 'bg-red-50 border border-red-200'}`}>
+        <div className="flex items-center gap-2">
+          <span className={`w-3 h-3 rounded-full ${isOnline ? 'bg-green-500' : 'bg-red-500'}`} />
+          <span className="font-semibold">{isOnline ? 'Online' : 'Offline'}</span>
+        </div>
+        <p className="text-sm mt-1 text-gray-600">
+          {isOnline ? 'Connected to server' : 'Working with local data'}
+        </p>
+      </div>
+      
+      {/* Sync Section */}
+      <div className="bg-white rounded-lg border border-gray-200 p-4">
+        <h3 className="font-semibold text-lg mb-3">🔄 Offline Data</h3>
+        
+        {syncStatus && (
+          <div className="space-y-2 text-sm mb-4">
+            <div className="flex justify-between">
+              <span className="text-gray-600">Products cached:</span>
+              <span className="font-medium">{syncStatus.productCount || 0}</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-gray-600">Customers cached:</span>
+              <span className="font-medium">{syncStatus.customerCount || 0}</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-gray-600">Last sync:</span>
+              <span className="font-medium">{formatDate(syncStatus.lastProductSync)}</span>
+            </div>
+          </div>
+        )}
+        
+        <button
+          onClick={handleSync}
+          disabled={isSyncing || !isOnline}
+          className="w-full py-3 bg-blue-600 text-white rounded-lg font-semibold disabled:bg-gray-400"
+        >
+          {isSyncing ? syncProgress || 'Syncing...' : 'Download Data for Offline Use'}
+        </button>
+        <p className="text-xs text-gray-500 mt-2 text-center">
+          Downloads products & customers so you can work without internet
+        </p>
+      </div>
+      
+      {/* Pending Orders */}
+      {syncStatus?.pendingOrderCount > 0 && (
+        <div className="bg-orange-50 border border-orange-200 rounded-lg p-4">
+          <h3 className="font-semibold text-lg mb-2">⏳ Pending Orders</h3>
+          <p className="text-sm text-gray-600 mb-3">
+            You have {syncStatus.pendingOrderCount} order(s) waiting to be submitted.
+          </p>
+          <button
+            onClick={handleSubmitPending}
+            disabled={!isOnline}
+            className="w-full py-3 bg-orange-500 text-white rounded-lg font-semibold disabled:bg-gray-400"
+          >
+            {isOnline ? 'Submit Pending Orders' : 'Go online to submit'}
+          </button>
+        </div>
+      )}
+      
+      {/* Agent Info */}
+      <div className="bg-white rounded-lg border border-gray-200 p-4">
+        <h3 className="font-semibold text-lg mb-3">👤 Account</h3>
+        <div className="text-sm space-y-2">
+          <div className="flex justify-between">
+            <span className="text-gray-600">Agent:</span>
+            <span className="font-medium">{agent?.name}</span>
+          </div>
+          <div className="flex justify-between">
+            <span className="text-gray-600">Brands:</span>
+            <span className="font-medium text-right">{agent?.brands?.join(', ')}</span>
+          </div>
+        </div>
+        <button
+          onClick={logout}
+          className="w-full mt-4 py-3 bg-gray-200 text-gray-800 rounded-lg font-semibold"
+        >
+          Log Out
+        </button>
+      </div>
+      
+      {/* App Info */}
+      <div className="text-center text-xs text-gray-400 py-4">
+        DM Sales App v1.0
+      </div>
+    </div>
+  )
+}
+
 function TabBar({ activeTab, setActiveTab }) {
   const { cartCount, cartTotal } = useCart()
+  const offline = useOffline()
   
   const tabs = [
     { id: 'home', label: 'Home', icon: '🏠' },
     { id: 'products', label: 'Products', icon: '📦' },
     { id: 'customers', label: 'Customers', icon: '👥' },
     { id: 'cart', label: cartCount > 0 ? `£${cartTotal.toFixed(0)}` : 'Cart', icon: '🛒', badge: cartCount },
-    { id: 'orders', label: 'Orders', icon: '📋' }
+    { id: 'settings', label: 'Settings', icon: '⚙️', badge: offline?.syncStatus?.pendingOrderCount || 0 }
   ]
   
   return (
@@ -1349,7 +1561,8 @@ function MainApp() {
     quickorder: 'Quick Order',
     customers: 'Customers',
     cart: 'Cart',
-    orders: 'Recent Orders'
+    orders: 'Recent Orders',
+    settings: 'Settings'
   }
   
   // Show landing page if home selected
@@ -1372,6 +1585,7 @@ function MainApp() {
         {activeSection === 'customers' && <CustomersTab />}
         {activeSection === 'cart' && <CartTab onOrderSubmitted={handleOrderSubmitted} />}
         {activeSection === 'orders' && <OrdersTab />}
+        {activeSection === 'settings' && <SettingsTab />}
       </div>
       
       <TabBar activeTab={activeSection} setActiveTab={setActiveSection} />
@@ -1401,19 +1615,21 @@ export default function App() {
     <AuthProvider>
       <CartProvider>
         <ToastProvider>
-          <Routes>
-            <Route path="/login" element={<LoginPage />} />
-            <Route
-              path="/*"
-              element={
-                <ProtectedRoute>
-                  <BarcodeHandler>
-                    <MainApp />
-                  </BarcodeHandler>
-                </ProtectedRoute>
-              }
-            />
-          </Routes>
+          <OfflineProvider>
+            <Routes>
+              <Route path="/login" element={<LoginPage />} />
+              <Route
+                path="/*"
+                element={
+                  <ProtectedRoute>
+                    <BarcodeHandler>
+                      <MainApp />
+                    </BarcodeHandler>
+                  </ProtectedRoute>
+                }
+              />
+            </Routes>
+          </OfflineProvider>
         </ToastProvider>
       </CartProvider>
     </AuthProvider>

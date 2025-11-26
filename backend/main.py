@@ -380,6 +380,112 @@ def filter_items_by_brand(items: List, brands: List[str]) -> List:
     return filtered
 
 
+@app.get("/api/products/sync")
+async def sync_products(
+    agent: TokenData = Depends(get_current_agent)
+):
+    """Get ALL products for offline sync - no pagination"""
+    try:
+        print(f"SYNC: Starting product sync for {agent.agent_name}")
+        
+        # Get all brand patterns for this agent
+        brand_patterns = get_all_brand_patterns(agent.brands)
+        seen_ids = set()
+        all_items = []
+        
+        # Fetch products for each brand pattern
+        for brand_term in brand_patterns:
+            page = 1
+            while True:
+                response = await zoho_api.get_items(page=page, per_page=200, search=brand_term)
+                items = response.get("items", [])
+                
+                for item in items:
+                    item_id = item.get("item_id")
+                    if item_id not in seen_ids and item.get("status") != "inactive":
+                        seen_ids.add(item_id)
+                        all_items.append(item)
+                
+                if not response.get("page_context", {}).get("has_more_page", False):
+                    break
+                page += 1
+                if page > 20:  # Safety limit per brand
+                    break
+        
+        # Filter to ensure only agent's brands
+        all_items = filter_items_by_brand(all_items, agent.brands)
+        
+        # Transform for frontend
+        products = []
+        for item in all_items:
+            sku = item.get("sku", "")
+            products.append({
+                "item_id": item.get("item_id"),
+                "name": item.get("name"),
+                "sku": sku,
+                "ean": item.get("ean") or item.get("upc") or "",
+                "description": item.get("description", ""),
+                "rate": item.get("rate", 0),
+                "stock_on_hand": item.get("stock_on_hand", 0),
+                "brand": item.get("brand") or item.get("manufacturer") or "",
+                "unit": item.get("unit", "pcs"),
+                "pack_qty": _pack_quantities.get(sku)
+            })
+        
+        print(f"SYNC: Returning {len(products)} products")
+        
+        return {
+            "products": products,
+            "total": len(products),
+            "synced_at": datetime.utcnow().isoformat()
+        }
+    except Exception as e:
+        print(f"SYNC ERROR: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/customers/sync")
+async def sync_customers(
+    agent: TokenData = Depends(get_current_agent)
+):
+    """Get ALL customers for offline sync - no pagination"""
+    try:
+        print(f"SYNC: Starting customer sync for {agent.agent_name}")
+        
+        all_contacts = []
+        page = 1
+        
+        while True:
+            response = await zoho_api.get_contacts(page=page, per_page=200)
+            contacts = response.get("contacts", [])
+            all_contacts.extend(contacts)
+            
+            if not response.get("page_context", {}).get("has_more_page", False):
+                break
+            page += 1
+            if page > 50:  # Safety limit
+                break
+        
+        customers = [{
+            "contact_id": c.get("contact_id"),
+            "company_name": c.get("company_name") or c.get("contact_name"),
+            "contact_name": c.get("contact_name"),
+            "email": c.get("email"),
+            "phone": c.get("phone")
+        } for c in all_contacts]
+        
+        print(f"SYNC: Returning {len(customers)} customers")
+        
+        return {
+            "customers": customers,
+            "total": len(customers),
+            "synced_at": datetime.utcnow().isoformat()
+        }
+    except Exception as e:
+        print(f"SYNC ERROR: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @app.get("/api/products")
 async def get_products(
     page: int = 1,
