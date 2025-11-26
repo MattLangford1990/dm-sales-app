@@ -459,8 +459,12 @@ async def get_products(
             items = items[start:end]
         
         # Transform for frontend (only include selling price, not purchase price)
+        # Filter out inactive items
         products = []
         for item in items:
+            # Skip inactive items
+            if item.get("status") == "inactive":
+                continue
             sku = item.get("sku", "")
             products.append({
                 "item_id": item.get("item_id"),
@@ -669,8 +673,12 @@ async def create_order(
             "message": "Order created successfully"
         }
     except Exception as e:
+        error_msg = str(e)
+        # Extract Zoho's error message if present
+        if "Inactive items" in error_msg:
+            error_msg = "Some items in your cart are no longer available. Please clear your cart and try again."
         print(f"ORDER ERROR: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=error_msg)
 
 
 @app.get("/api/orders")

@@ -92,7 +92,8 @@ async def zoho_request(method: str, endpoint: str, **kwargs) -> dict:
             except:
                 pass
             print(f"ZOHO ERROR: {response.status_code} - {error_detail}")
-            response.raise_for_status()
+            # Raise with Zoho's actual error message
+            raise Exception(f"Zoho API Error: {error_detail}")
         
         return response.json()
 
