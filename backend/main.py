@@ -546,9 +546,19 @@ async def lookup_barcode(
         response = await zoho_api.get_items(page=1, per_page=100, search=barcode)
         items = response.get("items", [])
         
-        # Look for exact EAN match first
+        print(f"BARCODE: Search returned {len(items)} items")
+        
+        # Debug: print first item's fields to see what EAN field is called
+        if items:
+            first = items[0]
+            print(f"BARCODE DEBUG: First item fields: ean={first.get('ean')}, upc={first.get('upc')}, cf_ean={first.get('cf_ean')}, barcode={first.get('barcode')}")
+            print(f"BARCODE DEBUG: All custom fields: {[k for k in first.keys() if k.startswith('cf_')]}")
+        
+        # Look for exact EAN match - try multiple possible field names
         for item in items:
-            item_ean = item.get("ean") or item.get("upc") or ""
+            item_ean = item.get("ean") or item.get("upc") or item.get("cf_ean") or item.get("barcode") or ""
+            print(f"BARCODE: Checking item {item.get('sku')} - EAN field value: '{item_ean}'")
+            
             if item_ean == barcode:
                 print(f"BARCODE: Found exact EAN match: {item.get('name')}")
                 # Filter out inactive items
