@@ -1212,13 +1212,13 @@ function OrderSuccessModal({ order, onClose }) {
 }
 
 function TabBar({ activeTab, setActiveTab }) {
-  const { cartCount } = useCart()
+  const { cartCount, cartTotal } = useCart()
   
   const tabs = [
     { id: 'home', label: 'Home', icon: '🏠' },
     { id: 'products', label: 'Products', icon: '📦' },
     { id: 'customers', label: 'Customers', icon: '👥' },
-    { id: 'cart', label: 'Cart', icon: '🛒', badge: cartCount },
+    { id: 'cart', label: cartCount > 0 ? `£${cartTotal.toFixed(0)}` : 'Cart', icon: '🛒', badge: cartCount },
     { id: 'orders', label: 'Orders', icon: '📋' }
   ]
   
