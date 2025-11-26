@@ -1155,6 +1155,17 @@ async def health_check():
     return {"status": "healthy", "timestamp": datetime.utcnow().isoformat()}
 
 
+@app.get("/api/debug/pack-qty/{sku}")
+async def debug_pack_qty(sku: str):
+    """Debug: Check pack quantity for a SKU"""
+    return {
+        "sku": sku,
+        "pack_qty": _pack_quantities.get(sku),
+        "total_pack_qtys_loaded": len(_pack_quantities),
+        "sample_keys": list(_pack_quantities.keys())[:10]
+    }
+
+
 # ============ Static Files (Production) ============
 
 # Serve frontend static files in production
