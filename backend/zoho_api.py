@@ -124,6 +124,23 @@ async def get_item(item_id: str) -> dict:
     return await zoho_request("GET", f"items/{item_id}")
 
 
+async def get_item_by_ean(ean: str) -> dict:
+    """Search for an item by EAN/barcode"""
+    # Zoho doesn't have direct EAN search, so we need to fetch items and filter
+    # First try searching with the EAN as text
+    result = await zoho_request("GET", "items", params={"search_text": ean})
+    items = result.get("items", [])
+    
+    # Look for exact EAN match
+    for item in items:
+        if item.get("ean") == ean or item.get("upc") == ean:
+            return {"item": item, "found": True}
+    
+    # If not found in search results, the EAN might not be indexed for search
+    # We may need to scan through more items
+    return {"item": None, "found": False}
+
+
 async def get_item_stock(item_id: str) -> dict:
     """Get stock levels for an item"""
     return await zoho_request("GET", f"items/{item_id}")

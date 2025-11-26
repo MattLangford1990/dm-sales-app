@@ -533,6 +533,77 @@ async def get_product_image(item_id: str):
         raise HTTPException(status_code=404, detail="Image not found")
 
 
+@app.get("/api/barcode/{barcode}")
+async def lookup_barcode(
+    barcode: str,
+    agent: TokenData = Depends(get_current_agent)
+):
+    """Look up a product by EAN/barcode"""
+    try:
+        print(f"BARCODE: Looking up {barcode}")
+        
+        # Search using the barcode as search text
+        response = await zoho_api.get_items(page=1, per_page=100, search=barcode)
+        items = response.get("items", [])
+        
+        # Look for exact EAN match first
+        for item in items:
+            item_ean = item.get("ean") or item.get("upc") or ""
+            if item_ean == barcode:
+                print(f"BARCODE: Found exact EAN match: {item.get('name')}")
+                # Filter out inactive items
+                if item.get("status") == "inactive":
+                    return {"found": False, "message": "Product is inactive"}
+                
+                sku = item.get("sku", "")
+                return {
+                    "found": True,
+                    "product": {
+                        "item_id": item.get("item_id"),
+                        "name": item.get("name"),
+                        "sku": sku,
+                        "ean": item_ean,
+                        "description": item.get("description", ""),
+                        "rate": item.get("rate", 0),
+                        "stock_on_hand": item.get("stock_on_hand", 0),
+                        "brand": item.get("brand") or item.get("manufacturer") or "",
+                        "unit": item.get("unit", "pcs"),
+                        "pack_qty": _pack_quantities.get(sku)
+                    }
+                }
+        
+        # If no exact EAN match, check if barcode matches SKU
+        for item in items:
+            if item.get("sku", "").upper() == barcode.upper():
+                print(f"BARCODE: Found SKU match: {item.get('name')}")
+                if item.get("status") == "inactive":
+                    return {"found": False, "message": "Product is inactive"}
+                
+                sku = item.get("sku", "")
+                return {
+                    "found": True,
+                    "product": {
+                        "item_id": item.get("item_id"),
+                        "name": item.get("name"),
+                        "sku": sku,
+                        "ean": item.get("ean") or item.get("upc") or "",
+                        "description": item.get("description", ""),
+                        "rate": item.get("rate", 0),
+                        "stock_on_hand": item.get("stock_on_hand", 0),
+                        "brand": item.get("brand") or item.get("manufacturer") or "",
+                        "unit": item.get("unit", "pcs"),
+                        "pack_qty": _pack_quantities.get(sku)
+                    }
+                }
+        
+        print(f"BARCODE: Not found: {barcode}")
+        return {"found": False, "message": "Product not found"}
+        
+    except Exception as e:
+        print(f"BARCODE ERROR: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 # ============ Customers Routes ============
 
 @app.get("/api/customers")
