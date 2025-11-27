@@ -45,7 +45,7 @@ export async function syncProducts(onProgress) {
     await offlineStore.setSyncMeta('productCount', products.length)
     
     console.log(`SYNC: Downloaded ${products.length} products`)
-    return products.length
+    return products
   } catch (err) {
     console.error('SYNC: Error fetching products', err)
     throw err
@@ -105,54 +105,78 @@ export async function syncCustomers(onProgress) {
   }
 }
 
-// Pre-cache product images (optional, can be slow)
+// Pre-cache product images - downloads in parallel batches for speed
 export async function syncImages(products, onProgress) {
   console.log('SYNC: Starting image sync...')
   
-  await offlineStore.clearImages()
-  
   let cached = 0
+  let skipped = 0
+  let failed = 0
   const total = products.length
+  const BATCH_SIZE = 10 // Download 10 images at a time
   
-  for (let i = 0; i < products.length; i++) {
-    const product = products[i]
+  for (let i = 0; i < products.length; i += BATCH_SIZE) {
+    const batch = products.slice(i, i + BATCH_SIZE)
     
-    if (i % 10 === 0) {
-      onProgress?.({ 
-        stage: 'images', 
-        current: i, 
-        total,
-        message: `Caching images (${i}/${total})...` 
+    onProgress?.({ 
+      stage: 'images', 
+      current: i, 
+      total,
+      message: `Downloading images (${i}/${total})...` 
+    })
+    
+    // Download batch in parallel
+    const results = await Promise.allSettled(
+      batch.map(async (product) => {
+        try {
+          // Check if we already have this image
+          const existing = await offlineStore.getImage(product.item_id)
+          if (existing) {
+            return { status: 'skipped' }
+          }
+          
+          const response = await fetch(`/api/products/${product.item_id}/image`)
+          if (response.ok) {
+            const blob = await response.blob()
+            // Only save if it's actually an image (not an error page)
+            if (blob.type.startsWith('image/') && blob.size > 100) {
+              await offlineStore.saveImage(product.item_id, blob)
+              return { status: 'cached' }
+            }
+          }
+          return { status: 'failed' }
+        } catch (err) {
+          return { status: 'failed' }
+        }
       })
-    }
+    )
     
-    try {
-      const response = await fetch(`/api/products/${product.item_id}/image`)
-      if (response.ok) {
-        const blob = await response.blob()
-        await offlineStore.saveImage(product.item_id, blob)
-        cached++
+    // Count results
+    results.forEach(r => {
+      if (r.status === 'fulfilled') {
+        if (r.value.status === 'cached') cached++
+        else if (r.value.status === 'skipped') skipped++
+        else failed++
+      } else {
+        failed++
       }
-    } catch (err) {
-      // Image not available, skip
-    }
+    })
     
-    // Small delay to avoid overwhelming the server
-    if (i % 20 === 0) {
-      await new Promise(resolve => setTimeout(resolve, 100))
-    }
+    // Small delay between batches to not overwhelm server
+    await new Promise(resolve => setTimeout(resolve, 100))
   }
   
+  const totalCached = cached + skipped
   await offlineStore.setSyncMeta('lastImageSync', new Date().toISOString())
-  await offlineStore.setSyncMeta('imageCount', cached)
+  await offlineStore.setSyncMeta('imageCount', totalCached)
   
-  console.log(`SYNC: Cached ${cached} images`)
-  return cached
+  console.log(`SYNC: Images - ${cached} new, ${skipped} already cached, ${failed} failed`)
+  return totalCached
 }
 
-// Full sync - products, customers, and optionally images
+// Full sync - products, customers, AND images (images now included by default)
 export async function fullSync(options = {}, onProgress) {
-  const { includeImages = false } = options
+  const { includeImages = true } = options // Images included by default now
   
   const results = {
     products: 0,
@@ -161,15 +185,15 @@ export async function fullSync(options = {}, onProgress) {
   }
   
   try {
-    // Sync products
-    results.products = await syncProducts(onProgress)
+    // Sync products (returns the product array now)
+    const products = await syncProducts(onProgress)
+    results.products = products.length
     
     // Sync customers
     results.customers = await syncCustomers(onProgress)
     
-    // Optionally sync images (can take a long time)
-    if (includeImages) {
-      const products = await offlineStore.getProducts()
+    // Sync images (now included by default)
+    if (includeImages && products.length > 0) {
       results.images = await syncImages(products, onProgress)
     }
     

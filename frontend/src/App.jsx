@@ -96,7 +96,7 @@ function AuthProvider({ children }) {
           console.warn('Failed to save offline credentials:', err)
         }
         
-        // Auto-sync in background after login
+        // Auto-sync products/customers in background after login (no images - too slow for background)
         console.log('Login successful - triggering background sync')
         syncService.fullSync({ includeImages: false }).catch(err => {
           console.warn('Background sync after login failed:', err)
@@ -325,7 +325,8 @@ function OfflineProvider({ children }) {
   const doSync = async (onProgress) => {
     setIsSyncing(true)
     try {
-      await syncService.fullSync({ includeImages: false }, onProgress)
+      // includeImages: true - downloads product images for offline use
+      await syncService.fullSync({ includeImages: true }, onProgress)
       await refreshSyncStatus()
     } finally {
       setIsSyncing(false)
@@ -421,6 +422,82 @@ function LoadingSpinner() {
   )
 }
 
+// Offline-aware image component - uses cached images when offline
+function OfflineImage({ itemId, alt, className, fallbackIcon = '📦' }) {
+  const [imageSrc, setImageSrc] = useState(null)
+  const [showFallback, setShowFallback] = useState(false)
+  const { isOnline } = useOffline()
+  
+  useEffect(() => {
+    let mounted = true
+    
+    const loadImage = async () => {
+      // If online, use the API directly
+      if (isOnline) {
+        setImageSrc(`${API_BASE}/products/${itemId}/image`)
+        return
+      }
+      
+      // If offline, try to load from cache
+      try {
+        const cachedImage = await offlineStore.getImage(itemId)
+        if (mounted && cachedImage) {
+          setImageSrc(cachedImage)
+        } else if (mounted) {
+          setShowFallback(true)
+        }
+      } catch (err) {
+        if (mounted) setShowFallback(true)
+      }
+    }
+    
+    loadImage()
+    
+    return () => { mounted = false }
+  }, [itemId, isOnline])
+  
+  const handleError = async () => {
+    // If online image fails, try cache
+    if (isOnline) {
+      try {
+        const cachedImage = await offlineStore.getImage(itemId)
+        if (cachedImage) {
+          setImageSrc(cachedImage)
+          return
+        }
+      } catch (err) {
+        // Fall through to fallback
+      }
+    }
+    setShowFallback(true)
+  }
+  
+  if (showFallback) {
+    return (
+      <div className={`flex items-center justify-center bg-gray-100 ${className}`}>
+        <span className="text-4xl">{fallbackIcon}</span>
+      </div>
+    )
+  }
+  
+  if (!imageSrc) {
+    return (
+      <div className={`flex items-center justify-center bg-gray-100 ${className}`}>
+        <div className="w-6 h-6 border-2 border-gray-300 border-t-gray-600 rounded-full animate-spin"></div>
+      </div>
+    )
+  }
+  
+  return (
+    <img
+      src={imageSrc}
+      alt={alt}
+      className={className}
+      onError={handleError}
+    />
+  )
+}
+
 function ProductDetailModal({ product, onClose, onAddToCart }) {
   if (!product) return null
   
@@ -435,16 +512,12 @@ function ProductDetailModal({ product, onClose, onAddToCart }) {
             ×
           </button>
           <div className="aspect-square bg-gray-100">
-            <img
-              src={`/api/products/${product.item_id}/image`}
+            <OfflineImage
+              itemId={product.item_id}
               alt={product.name}
               className="w-full h-full object-contain"
-              onError={(e) => {
-                e.target.style.display = 'none'
-                e.target.nextSibling.style.display = 'flex'
-              }}
+              fallbackIcon="📦"
             />
-            <span className="text-6xl hidden items-center justify-center w-full h-full">📦</span>
           </div>
         </div>
         
@@ -1415,17 +1488,13 @@ function CartTab({ onOrderSubmitted }) {
             {cart.map(item => (
               <div key={item.item_id} className="p-4">
                 <div className="flex gap-3 mb-2">
-                  <div className="w-16 h-16 bg-gray-100 rounded-lg flex-shrink-0 overflow-hidden">
-                    <img
-                      src={`/api/products/${item.item_id}/image`}
+                  <div className="w-16 h-16 rounded-lg flex-shrink-0 overflow-hidden">
+                    <OfflineImage
+                      itemId={item.item_id}
                       alt={item.name}
                       className="w-full h-full object-cover"
-                      onError={(e) => {
-                        e.target.style.display = 'none'
-                        e.target.nextSibling.style.display = 'flex'
-                      }}
+                      fallbackIcon="📦"
                     />
-                    <span className="text-2xl hidden items-center justify-center w-full h-full">📦</span>
                   </div>
                   <div className="flex-1 min-w-0">
                     <div className="flex justify-between items-start">
@@ -2377,6 +2446,10 @@ function SettingsTab() {
               <span className="font-medium">{syncStatus.productCount || 0}</span>
             </div>
             <div className="flex justify-between">
+              <span className="text-gray-600">Images cached:</span>
+              <span className="font-medium">{syncStatus.imageCount || 0}</span>
+            </div>
+            <div className="flex justify-between">
               <span className="text-gray-600">Customers cached:</span>
               <span className="font-medium">{syncStatus.customerCount || 0}</span>
             </div>
@@ -2392,10 +2465,10 @@ function SettingsTab() {
           disabled={isSyncing || !isOnline}
           className="w-full py-3 bg-blue-600 text-white rounded-lg font-semibold disabled:bg-gray-400"
         >
-          {isSyncing ? syncProgress || 'Syncing...' : 'Download Data for Offline Use'}
+          {isSyncing ? syncProgress || 'Syncing...' : '📲 Download Data for Offline Use'}
         </button>
         <p className="text-xs text-gray-500 mt-2 text-center">
-          Downloads products & customers so you can work without internet
+          Downloads products, images & customers for offline access
         </p>
       </div>
       
