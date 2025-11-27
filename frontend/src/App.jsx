@@ -152,8 +152,39 @@ const useAuth = () => useContext(AuthContext)
 const CartContext = createContext(null)
 
 function CartProvider({ children }) {
-  const [cart, setCart] = useState([])
-  const [customer, setCustomer] = useState(null)
+  // Initialize cart from localStorage
+  const [cart, setCart] = useState(() => {
+    try {
+      const saved = localStorage.getItem('cart')
+      return saved ? JSON.parse(saved) : []
+    } catch {
+      return []
+    }
+  })
+  
+  // Initialize customer from localStorage
+  const [customer, setCustomer] = useState(() => {
+    try {
+      const saved = localStorage.getItem('selectedCustomer')
+      return saved ? JSON.parse(saved) : null
+    } catch {
+      return null
+    }
+  })
+  
+  // Persist cart to localStorage whenever it changes
+  useEffect(() => {
+    localStorage.setItem('cart', JSON.stringify(cart))
+  }, [cart])
+  
+  // Persist customer to localStorage whenever it changes
+  useEffect(() => {
+    if (customer) {
+      localStorage.setItem('selectedCustomer', JSON.stringify(customer))
+    } else {
+      localStorage.removeItem('selectedCustomer')
+    }
+  }, [customer])
   
   const addToCart = (product, quantity = 1) => {
     setCart(prev => {
@@ -188,6 +219,9 @@ function CartProvider({ children }) {
   const clearCart = () => {
     setCart([])
     setCustomer(null)
+    // Also clear from localStorage
+    localStorage.removeItem('cart')
+    localStorage.removeItem('selectedCustomer')
   }
   
   const cartTotal = cart.reduce((sum, item) => {
