@@ -22,38 +22,38 @@ ALL_BRANDS = ["Remember", "Räder", "Relaxound", "My Flame", "Elvang Denmark", "
 ADMIN_AGENTS = ["sammie", "georgia", "matt"]
 
 AGENTS = {
-    "kate": {
-        "name": "Kate",
+    "kate.ellis": {
+        "name": "Kate Ellis",
         "pin": "1234",
         "commission_rate": 0.15,
         "brands": ["Remember", "My Flame", "Ideas4Seasons", "Räder"]
     },
-    "nick": {
-        "name": "Nick",
+    "nick.barr": {
+        "name": "Nick Barr",
         "pin": "1234",
         "commission_rate": 0.15,
         "brands": ALL_BRANDS
     },
-    "dave": {
-        "name": "Dave & Chris",
+    "dc.roberts": {
+        "name": "DC Roberts",
         "pin": "1234",
         "commission_rate": 0.125,
         "brands": ALL_BRANDS
     },
-    "gay": {
-        "name": "Gay",
+    "gay.croker": {
+        "name": "Gay Croker",
         "pin": "1234",
         "commission_rate": 0.125,
         "brands": ["Remember", "Räder", "Ideas4Seasons", "My Flame"]
     },
-    "hannah": {
-        "name": "Hannah",
+    "hannah.neale": {
+        "name": "Hannah Neale",
         "pin": "1234",
         "commission_rate": 0.125,
         "brands": ["Remember"]
     },
-    "steph": {
-        "name": "Steph",
+    "steph.gillard": {
+        "name": "Steph Gillard",
         "pin": "1234",
         "commission_rate": 0.125,
         "brands": ["Räder"]
