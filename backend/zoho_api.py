@@ -70,9 +70,10 @@ def invalidate_items_cache():
     _all_items_cache["cached_at"] = None
     print("CACHE: Items cache invalidated")
 
-# Image cache - stores {item_id: {"data": bytes, "cached_at": datetime}}
-_image_cache = {}
-IMAGE_CACHE_TTL = timedelta(hours=24)  # Cache images for 24 hours
+# Image cache - DISABLED to save memory
+# Browser caching (24hr) + frontend IndexedDB handles image caching instead
+# We just cache "no image" markers to avoid repeated lookups
+_no_image_cache = set()  # Set of item_ids with no image
 
 # Document ID cache - stores {item_id: image_document_id}
 # Populated when items are fetched via list endpoint
@@ -80,12 +81,6 @@ _doc_id_cache = {}
 
 # Rate limiting for image requests
 _image_request_semaphore = asyncio.Semaphore(2)  # Max 2 concurrent image requests
-
-# Global rate limit cooldown
-_rate_limit_cooldown = {
-    "blocked_until": None
-}
-RATE_LIMIT_COOLDOWN = timedelta(minutes=2)  # Wait 2 minutes after being rate limited
 
 
 async def get_access_token() -> str:
@@ -259,19 +254,11 @@ async def get_sales_order(salesorder_id: str) -> dict:
 # ============ Images ============
 
 async def get_item_image(item_id: str) -> bytes:
-    """Get item image as bytes - uses cached data to minimize API calls"""
-    now = datetime.now()
+    """Get item image as bytes - no memory caching, relies on browser/frontend caching"""
     
-    # Check image cache first (includes "no image" markers)
-    if item_id in _image_cache:
-        cached = _image_cache[item_id]
-        if cached is None:
-            # Cached "no image" result
-            return None
-        if now - cached["cached_at"] < IMAGE_CACHE_TTL:
-            return cached["data"]
-        else:
-            del _image_cache[item_id]
+    # Check if we already know this item has no image
+    if item_id in _no_image_cache:
+        return None
     
     # Ensure all-items cache is populated (this also populates _doc_id_cache via get_items)
     await get_all_items_cached()
@@ -280,21 +267,12 @@ async def get_item_image(item_id: str) -> bytes:
     doc_id = _doc_id_cache.get(item_id)
     
     if not doc_id:
-        # No image for this item - cache this to avoid repeated lookups
-        _image_cache[item_id] = None
-        print(f"IMAGE: No image_document_id for {item_id}, caching as no-image")
+        # No image for this item - remember this
+        _no_image_cache.add(item_id)
         return None
     
     # Use semaphore to limit concurrent requests
     async with _image_request_semaphore:
-        # Double-check image cache (another request might have fetched it)
-        if item_id in _image_cache:
-            cached = _image_cache[item_id]
-            if cached is None:
-                return None
-            if now - cached["cached_at"] < IMAGE_CACHE_TTL:
-                return cached["data"]
-        
         token = await get_access_token()
         headers = {"Authorization": f"Zoho-oauthtoken {token}"}
         params = {"organization_id": settings.zoho_org_id}
@@ -306,14 +284,8 @@ async def get_item_image(item_id: str) -> bytes:
             doc_resp = await client.get(doc_url, headers=headers, params=params)
             
             if doc_resp.status_code == 200 and len(doc_resp.content) > 100:
-                # Cache the image
-                _image_cache[item_id] = {
-                    "data": doc_resp.content,
-                    "cached_at": datetime.now()
-                }
                 return doc_resp.content
             else:
-                # Cache as no-image
-                _image_cache[item_id] = None
-                print(f"IMAGE: Failed to fetch {item_id}, status={doc_resp.status_code}")
+                # Mark as no-image to avoid future lookups
+                _no_image_cache.add(item_id)
                 return None
