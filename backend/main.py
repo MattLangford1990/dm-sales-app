@@ -1231,6 +1231,36 @@ async def export_quote(
 
 # ============ Health Check ============
 
+@app.get("/api/debug/image-info")
+async def debug_image_info():
+    """Debug: Check what image data Zoho provides"""
+    try:
+        # Get a few items from cache
+        all_items = await zoho_api.get_all_items_cached()
+        
+        # Find items with images
+        items_with_images = []
+        for item in all_items[:50]:  # Check first 50
+            if item.get("image_document_id") or item.get("image_url") or item.get("image_name"):
+                items_with_images.append({
+                    "name": item.get("name"),
+                    "sku": item.get("sku"),
+                    "image_document_id": item.get("image_document_id"),
+                    "image_url": item.get("image_url"),
+                    "image_name": item.get("image_name"),
+                    "all_image_fields": {k: v for k, v in item.items() if 'image' in k.lower()}
+                })
+        
+        return {
+            "total_items_checked": 50,
+            "items_with_image_data": len(items_with_images),
+            "samples": items_with_images[:5]
+        }
+    except Exception as e:
+        import traceback
+        return {"error": str(e), "traceback": traceback.format_exc()}
+
+
 @app.get("/api/health")
 async def health_check():
     """Health check endpoint"""
