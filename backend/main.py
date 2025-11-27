@@ -753,18 +753,12 @@ async def get_product(
 
 # ============ Product Images ============
 
-# Image cache - stores image bytes in memory
-_image_cache = {}
-_image_cache_max_size = 500  # Max number of images to cache
-
 @app.get("/api/products/{item_id}/image")
 async def get_product_image(item_id: str):
-    """Get product image - cached for performance"""
-    global _image_cache
-    
-    # Check cache first
-    if item_id in _image_cache:
-        image_data = _image_cache[item_id]
+    """Get product image - uses zoho_api caching"""
+    try:
+        image_data = await zoho_api.get_item_image(item_id)
+        
         if image_data:
             return Response(
                 content=image_data, 
@@ -776,33 +770,7 @@ async def get_product_image(item_id: str):
             )
         else:
             raise HTTPException(status_code=404, detail="Image not found")
-    
-    try:
-        image_data = await zoho_api.get_item_image(item_id)
-        
-        # Store in cache (limit size)
-        if len(_image_cache) >= _image_cache_max_size:
-            # Remove oldest entries (first 100)
-            keys_to_remove = list(_image_cache.keys())[:100]
-            for key in keys_to_remove:
-                del _image_cache[key]
-        
-        _image_cache[item_id] = image_data
-        
-        if image_data:
-            return Response(
-                content=image_data, 
-                media_type="image/jpeg",
-                headers={
-                    "Cache-Control": "public, max-age=86400",
-                    "ETag": f'"{item_id}"'
-                }
-            )
-        else:
-            raise HTTPException(status_code=404, detail="Image not found")
     except Exception as e:
-        # Cache the failure too to avoid repeated lookups
-        _image_cache[item_id] = None
         raise HTTPException(status_code=404, detail="Image not found")
 
 

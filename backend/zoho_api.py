@@ -18,6 +18,7 @@ _all_items_cache = {
     "cached_at": None
 }
 ALL_ITEMS_CACHE_TTL = timedelta(minutes=30)  # Refresh every 30 minutes
+_cache_lock = asyncio.Lock()  # Prevent concurrent cache refreshes
 
 async def get_all_items_cached() -> list:
     """Get all items from Zoho with caching - dramatically reduces API calls"""
@@ -28,32 +29,39 @@ async def get_all_items_cached() -> list:
     if _all_items_cache["items"] and _all_items_cache["cached_at"]:
         age = now - _all_items_cache["cached_at"]
         if age < ALL_ITEMS_CACHE_TTL:
-            print(f"CACHE HIT: Returning {len(_all_items_cache['items'])} cached items (age: {age})")
             return _all_items_cache["items"]
     
-    # Fetch all items from Zoho
-    print("CACHE MISS: Fetching all items from Zoho...")
-    all_items = []
-    page = 1
-    
-    while True:
-        response = await get_items(page=page, per_page=200)
-        items = response.get("items", [])
-        all_items.extend(items)
-        print(f"CACHE: Fetched page {page}, got {len(items)} items, total: {len(all_items)}")
+    # Use lock to prevent multiple concurrent fetches
+    async with _cache_lock:
+        # Double-check after acquiring lock (another request might have populated it)
+        if _all_items_cache["items"] and _all_items_cache["cached_at"]:
+            age = now - _all_items_cache["cached_at"]
+            if age < ALL_ITEMS_CACHE_TTL:
+                return _all_items_cache["items"]
         
-        if not response.get("page_context", {}).get("has_more_page", False):
-            break
-        page += 1
-        if page > 100:  # Safety limit (20,000 items max)
-            break
-    
-    # Update cache
-    _all_items_cache["items"] = all_items
-    _all_items_cache["cached_at"] = now
-    print(f"CACHE: Stored {len(all_items)} items, expires in {ALL_ITEMS_CACHE_TTL}")
-    
-    return all_items
+        # Fetch all items from Zoho
+        print("CACHE: Fetching all items from Zoho...")
+        all_items = []
+        page = 1
+        
+        while True:
+            response = await get_items(page=page, per_page=200)
+            items = response.get("items", [])
+            all_items.extend(items)
+            print(f"CACHE: Fetched page {page}, got {len(items)} items, total: {len(all_items)}")
+            
+            if not response.get("page_context", {}).get("has_more_page", False):
+                break
+            page += 1
+            if page > 100:  # Safety limit (20,000 items max)
+                break
+        
+        # Update cache
+        _all_items_cache["items"] = all_items
+        _all_items_cache["cached_at"] = now
+        print(f"CACHE: Stored {len(all_items)} items, expires in {ALL_ITEMS_CACHE_TTL}")
+        
+        return all_items
 
 def invalidate_items_cache():
     """Force refresh of items cache on next request"""
@@ -251,58 +259,39 @@ async def get_sales_order(salesorder_id: str) -> dict:
 # ============ Images ============
 
 async def get_item_image(item_id: str) -> bytes:
-    """Get item image as bytes using documents endpoint (avoids rate limiting)"""
+    """Get item image as bytes - uses cached data to minimize API calls"""
     now = datetime.now()
     
-    # Check image cache first
+    # Check image cache first (includes "no image" markers)
     if item_id in _image_cache:
         cached = _image_cache[item_id]
+        if cached is None:
+            # Cached "no image" result
+            return None
         if now - cached["cached_at"] < IMAGE_CACHE_TTL:
-            print(f"IMAGE: Cache hit for {item_id}")
             return cached["data"]
         else:
-            print(f"IMAGE: Cache expired for {item_id}")
             del _image_cache[item_id]
     
-    # Check if we have the document ID cached
+    # Ensure all-items cache is populated (this also populates _doc_id_cache via get_items)
+    await get_all_items_cached()
+    
+    # Check doc_id cache - should now be populated
     doc_id = _doc_id_cache.get(item_id)
     
-    # If not cached, use the all-items cache (which has ALL items)
     if not doc_id:
-        print(f"IMAGE: Doc ID not cached, checking all-items cache for {item_id}")
-        all_items = await get_all_items_cached()
-        
-        # Find this item in the cache
-        for item in all_items:
-            if item.get("item_id") == item_id:
-                doc_id = item.get("image_document_id")
-                if doc_id:
-                    _doc_id_cache[item_id] = doc_id
-                    print(f"IMAGE: Found doc_id {doc_id} for {item_id} in all-items cache")
-                break
-    
-    # If still no doc_id, try fetching the single item directly
-    if not doc_id:
-        print(f"IMAGE: Fetching single item {item_id} to get doc_id")
-        try:
-            item_response = await get_item(item_id)
-            item = item_response.get("item", {})
-            doc_id = item.get("image_document_id")
-            if doc_id:
-                _doc_id_cache[item_id] = doc_id
-                print(f"IMAGE: Found doc_id {doc_id} from single item fetch")
-        except Exception as e:
-            print(f"IMAGE: Error fetching single item: {e}")
-    
-    if not doc_id:
-        print(f"IMAGE: No document ID found for {item_id}")
+        # No image for this item - cache this to avoid repeated lookups
+        _image_cache[item_id] = None
+        print(f"IMAGE: No image_document_id for {item_id}, caching as no-image")
         return None
     
     # Use semaphore to limit concurrent requests
     async with _image_request_semaphore:
-        # Double-check image cache
+        # Double-check image cache (another request might have fetched it)
         if item_id in _image_cache:
             cached = _image_cache[item_id]
+            if cached is None:
+                return None
             if now - cached["cached_at"] < IMAGE_CACHE_TTL:
                 return cached["data"]
         
@@ -310,23 +299,21 @@ async def get_item_image(item_id: str) -> bytes:
         headers = {"Authorization": f"Zoho-oauthtoken {token}"}
         params = {"organization_id": settings.zoho_org_id}
         
-        # Fetch via documents endpoint (not rate limited!)
-        print(f"IMAGE: Fetching document {doc_id} for {item_id}")
+        # Fetch via documents endpoint
         doc_url = f"https://www.zohoapis.eu/inventory/v1/documents/{doc_id}"
         
         async with httpx.AsyncClient(timeout=30.0) as client:
             doc_resp = await client.get(doc_url, headers=headers, params=params)
             
-            print(f"IMAGE: Response status={doc_resp.status_code} for {item_id}")
-            
-            if doc_resp.status_code == 200:
+            if doc_resp.status_code == 200 and len(doc_resp.content) > 100:
                 # Cache the image
                 _image_cache[item_id] = {
                     "data": doc_resp.content,
                     "cached_at": datetime.now()
                 }
-                print(f"IMAGE: Cached {len(doc_resp.content)} bytes for {item_id}")
                 return doc_resp.content
             else:
-                print(f"IMAGE: Error {doc_resp.status_code} for {item_id}")
+                # Cache as no-image
+                _image_cache[item_id] = None
+                print(f"IMAGE: Failed to fetch {item_id}, status={doc_resp.status_code}")
                 return None
