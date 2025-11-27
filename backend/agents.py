@@ -18,6 +18,9 @@ BRAND_VARIATIONS = {
 
 ALL_BRANDS = ["Remember", "Räder", "Relaxound", "My Flame", "Elvang Denmark", "Paper Products Design", "Ideas4Seasons", "GEFU"]
 
+# Agents who can view all orders (admins)
+ADMIN_AGENTS = ["sammie", "georgia", "matt"]
+
 AGENTS = {
     "kate": {
         "name": "Kate",
@@ -114,3 +117,8 @@ def list_agents() -> List[Dict]:
         {"id": agent_id, "name": agent["name"]}
         for agent_id, agent in AGENTS.items()
     ]
+
+
+def is_admin(agent_id: str) -> bool:
+    """Check if agent has admin privileges (can view all orders)"""
+    return agent_id.lower() in ADMIN_AGENTS

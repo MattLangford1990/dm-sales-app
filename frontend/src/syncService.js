@@ -52,6 +52,31 @@ export async function syncProducts(onProgress) {
   }
 }
 
+// Lightweight stock-only sync (~50KB vs 1MB for full sync)
+export async function syncStock(onProgress) {
+  console.log('SYNC: Starting stock sync...')
+  
+  onProgress?.({ stage: 'stock', message: 'Updating stock levels...' })
+  
+  try {
+    const data = await apiRequest('/products/stock')
+    const stockData = data.stock || []
+    
+    // Update stock levels in existing products
+    if (stockData.length > 0) {
+      await offlineStore.updateStockLevels(stockData)
+    }
+    
+    await offlineStore.setSyncMeta('lastStockSync', new Date().toISOString())
+    
+    console.log(`SYNC: Updated ${stockData.length} stock levels`)
+    return stockData.length
+  } catch (err) {
+    console.error('SYNC: Error fetching stock', err)
+    throw err
+  }
+}
+
 // Download all customers for offline use
 export async function syncCustomers(onProgress) {
   console.log('SYNC: Starting customer sync...')
@@ -198,14 +223,15 @@ export async function submitPendingOrders(onProgress) {
 
 // Get sync status
 export async function getSyncStatus() {
-  const [lastProductSync, productCount, lastCustomerSync, customerCount, lastImageSync, imageCount] = 
+  const [lastProductSync, productCount, lastCustomerSync, customerCount, lastImageSync, imageCount, lastStockSync] = 
     await Promise.all([
       offlineStore.getSyncMeta('lastProductSync'),
       offlineStore.getSyncMeta('productCount'),
       offlineStore.getSyncMeta('lastCustomerSync'),
       offlineStore.getSyncMeta('customerCount'),
       offlineStore.getSyncMeta('lastImageSync'),
-      offlineStore.getSyncMeta('imageCount')
+      offlineStore.getSyncMeta('imageCount'),
+      offlineStore.getSyncMeta('lastStockSync')
     ])
   
   const pendingOrders = await offlineStore.getPendingOrders()
@@ -217,6 +243,7 @@ export async function getSyncStatus() {
     customerCount: customerCount || 0,
     lastImageSync,
     imageCount: imageCount || 0,
+    lastStockSync,
     pendingOrderCount: pendingOrders.length
   }
 }

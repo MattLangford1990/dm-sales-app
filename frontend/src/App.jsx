@@ -73,6 +73,12 @@ function AuthProvider({ children }) {
           console.warn('Failed to save offline credentials:', err)
         }
         
+        // Auto-sync in background after login
+        console.log('Login successful - triggering background sync')
+        syncService.fullSync({ includeImages: false }).catch(err => {
+          console.warn('Background sync after login failed:', err)
+        })
+        
         return data
       } catch (err) {
         // If online but login failed, don't fall back to offline
@@ -224,6 +230,7 @@ function OfflineProvider({ children }) {
   const [isOnline, setIsOnline] = useState(navigator.onLine)
   const [syncStatus, setSyncStatus] = useState(null)
   const [isSyncing, setIsSyncing] = useState(false)
+  const stockIntervalRef = useRef(null)
   
   const refreshSyncStatus = async () => {
     const status = await syncService.getSyncStatus()
@@ -231,8 +238,20 @@ function OfflineProvider({ children }) {
     return status
   }
   
+  // Auto-sync when coming back online
   useEffect(() => {
-    const handleOnline = () => setIsOnline(true)
+    const handleOnline = async () => {
+      setIsOnline(true)
+      console.log('Back online - triggering auto-sync')
+      // Small delay to let connection stabilize
+      setTimeout(async () => {
+        try {
+          await doSync()
+        } catch (err) {
+          console.error('Auto-sync on reconnect failed:', err)
+        }
+      }, 2000)
+    }
     const handleOffline = () => setIsOnline(false)
     
     window.addEventListener('online', handleOnline)
@@ -247,6 +266,37 @@ function OfflineProvider({ children }) {
     }
   }, [])
   
+  // Stock refresh every 60 minutes
+  useEffect(() => {
+    const startStockRefresh = () => {
+      // Clear any existing interval
+      if (stockIntervalRef.current) {
+        clearInterval(stockIntervalRef.current)
+      }
+      
+      // Set up 60-minute interval
+      stockIntervalRef.current = setInterval(async () => {
+        if (navigator.onLine && localStorage.getItem('token')) {
+          console.log('60-min stock refresh triggered')
+          try {
+            await syncService.syncStock()
+            await refreshSyncStatus()
+          } catch (err) {
+            console.error('Stock refresh failed:', err)
+          }
+        }
+      }, 60 * 60 * 1000) // 60 minutes
+    }
+    
+    startStockRefresh()
+    
+    return () => {
+      if (stockIntervalRef.current) {
+        clearInterval(stockIntervalRef.current)
+      }
+    }
+  }, [])
+  
   const doSync = async (onProgress) => {
     setIsSyncing(true)
     try {
@@ -254,6 +304,16 @@ function OfflineProvider({ children }) {
       await refreshSyncStatus()
     } finally {
       setIsSyncing(false)
+    }
+  }
+  
+  const doStockSync = async () => {
+    if (!navigator.onLine) return
+    try {
+      await syncService.syncStock()
+      await refreshSyncStatus()
+    } catch (err) {
+      console.error('Stock sync failed:', err)
     }
   }
   
@@ -270,6 +330,7 @@ function OfflineProvider({ children }) {
       syncStatus,
       isSyncing,
       doSync,
+      doStockSync,
       submitPendingOrders,
       refreshSyncStatus
     }}>
@@ -384,10 +445,10 @@ function ProductDetailModal({ product, onClose, onAddToCart }) {
           )}
           
           <button
-            onClick={() => { onAddToCart(product); onClose(); }}
+            onClick={() => { onAddToCart(product, product.pack_qty || 1); onClose(); }}
             className="w-full bg-primary-600 text-white py-3 rounded-xl font-semibold text-lg hover:bg-primary-700 transition mt-4"
           >
-            Add to Cart
+            Add to Cart {product.pack_qty ? `(${product.pack_qty})` : ''}
           </button>
         </div>
       </div>
@@ -675,16 +736,6 @@ function ProductsTab() {
                 onClick={() => setSelectedBrand(brand)}
                 className="bg-white border-2 border-gray-200 rounded-xl p-6 text-center hover:border-primary-500 hover:bg-primary-50 transition active:scale-95"
               >
-                <span className="text-4xl mb-3 block">
-                  {brand === 'Remember' && '🎁'}
-                  {brand === 'Räder' && '✨'}
-                  {brand === 'Relaxound' && '🎵'}
-                  {brand === 'My Flame' && '🕯️'}
-                  {brand === 'Elvang Denmark' && '🧶'}
-                  {brand === 'Paper Products Design' && '🎉'}
-                  {brand === 'Ideas4Seasons' && '🌿'}
-                  {brand === 'GEFU' && '🍳'}
-                </span>
                 <span className="font-semibold text-gray-800">{brand}</span>
               </button>
             ))}
@@ -916,7 +967,16 @@ function CustomersTab() {
 }
 
 function NewCustomerForm({ onBack, onCreated }) {
-  const [form, setForm] = useState({ company_name: '', contact_name: '', email: '', phone: '' })
+  const [form, setForm] = useState({ 
+    company_name: '', 
+    contact_name: '', 
+    email: '', 
+    phone: '',
+    billing_address: '',
+    shipping_address: '',
+    booking_requirements: '',
+    payment_terms: ''
+  })
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   
@@ -988,6 +1048,50 @@ function NewCustomerForm({ onBack, onCreated }) {
             value={form.phone}
             onChange={(e) => setForm({ ...form, phone: e.target.value })}
             className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-primary-500 focus:border-transparent outline-none"
+          />
+        </div>
+        
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-2">Billing Address</label>
+          <textarea
+            value={form.billing_address}
+            onChange={(e) => setForm({ ...form, billing_address: e.target.value })}
+            rows={3}
+            className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-primary-500 focus:border-transparent outline-none"
+            placeholder="Enter billing address..."
+          />
+        </div>
+        
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-2">Shipping Address</label>
+          <textarea
+            value={form.shipping_address}
+            onChange={(e) => setForm({ ...form, shipping_address: e.target.value })}
+            rows={3}
+            className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-primary-500 focus:border-transparent outline-none"
+            placeholder="Enter shipping address..."
+          />
+        </div>
+        
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-2">Booking In Requirements</label>
+          <textarea
+            value={form.booking_requirements}
+            onChange={(e) => setForm({ ...form, booking_requirements: e.target.value })}
+            rows={3}
+            className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-primary-500 focus:border-transparent outline-none"
+            placeholder="Any special booking requirements..."
+          />
+        </div>
+        
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-2">Payment Terms</label>
+          <textarea
+            value={form.payment_terms}
+            onChange={(e) => setForm({ ...form, payment_terms: e.target.value })}
+            rows={2}
+            className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-primary-500 focus:border-transparent outline-none"
+            placeholder="e.g. Net 30, Proforma, etc."
           />
         </div>
         
@@ -1874,8 +1978,8 @@ function BarcodeHandler({ children }) {
         const data = await apiRequest(`/barcode/${encodeURIComponent(barcode)}`)
         
         if (data.found && data.product) {
-          addToCart(data.product, 1)
-          addToast(`Added: ${data.product.name}`, 'success')
+          addToCart(data.product, data.product.pack_qty || 1)
+          addToast(`Added: ${data.product.name} (${data.product.pack_qty || 1})`, 'success')
           return
         }
       } catch (err) {
@@ -1894,8 +1998,8 @@ function BarcodeHandler({ children }) {
       }
       
       if (product) {
-        addToCart(product, 1)
-        addToast(`Added: ${product.name}`, 'success')
+        addToCart(product, product.pack_qty || 1)
+        addToast(`Added: ${product.name} (${product.pack_qty || 1})`, 'success')
         return
       }
     } catch (err) {

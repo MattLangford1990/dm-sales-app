@@ -224,6 +224,30 @@ export async function clearProducts() {
   })
 }
 
+// Update only stock levels (lightweight sync)
+export async function updateStockLevels(stockData) {
+  const database = await initDB()
+  const tx = database.transaction('products', 'readwrite')
+  const store = tx.objectStore('products')
+  
+  for (const item of stockData) {
+    // Get existing product and update stock only
+    const getRequest = store.get(item.item_id)
+    getRequest.onsuccess = () => {
+      const product = getRequest.result
+      if (product) {
+        product.stock_on_hand = item.stock_on_hand
+        store.put(product)
+      }
+    }
+  }
+  
+  return new Promise((resolve, reject) => {
+    tx.oncomplete = () => resolve()
+    tx.onerror = () => reject(tx.error)
+  })
+}
+
 // ============ Customers ============
 
 export async function saveCustomers(customers) {

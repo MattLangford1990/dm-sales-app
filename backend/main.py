@@ -13,7 +13,7 @@ import io
 
 import json
 from config import get_settings
-from agents import get_agent, get_agent_brands, verify_agent_pin, list_agents, get_all_brand_patterns
+from agents import get_agent, get_agent_brands, verify_agent_pin, list_agents, get_all_brand_patterns, is_admin
 import zoho_api
 
 # Load pack quantities
@@ -70,7 +70,10 @@ class CustomerCreate(BaseModel):
     contact_name: Optional[str] = None
     email: Optional[str] = None
     phone: Optional[str] = None
-    billing_address: Optional[Dict] = None
+    billing_address: Optional[str] = None
+    shipping_address: Optional[str] = None
+    booking_requirements: Optional[str] = None
+    payment_terms: Optional[str] = None
 
 
 class OrderLineItem(BaseModel):
@@ -348,7 +351,8 @@ async def get_me(agent: TokenData = Depends(get_current_agent)):
     return {
         "agent_id": agent.agent_id,
         "agent_name": agent.agent_name,
-        "brands": agent.brands
+        "brands": agent.brands,
+        "is_admin": is_admin(agent.agent_id)
     }
 
 
@@ -415,6 +419,9 @@ async def sync_products(
         # Filter to ensure only agent's brands
         all_items = filter_items_by_brand(all_items, agent.brands)
         
+        # Sort by SKU alphabetically
+        all_items.sort(key=lambda x: (x.get("sku") or "").upper())
+        
         # Transform for frontend
         products = []
         for item in all_items:
@@ -441,6 +448,53 @@ async def sync_products(
         }
     except Exception as e:
         print(f"SYNC ERROR: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/products/stock")
+async def get_stock_levels(
+    agent: TokenData = Depends(get_current_agent)
+):
+    """Get lightweight stock levels only - for periodic refresh (~50KB vs 1MB)"""
+    try:
+        print(f"STOCK: Getting stock levels for {agent.agent_name}")
+        
+        # Get all brand patterns for this agent
+        brand_patterns = get_all_brand_patterns(agent.brands)
+        seen_ids = set()
+        stock_data = []
+        
+        # Fetch products for each brand pattern
+        for brand_term in brand_patterns:
+            page = 1
+            while True:
+                response = await zoho_api.get_items(page=page, per_page=200, search=brand_term)
+                items = response.get("items", [])
+                
+                for item in items:
+                    item_id = item.get("item_id")
+                    if item_id not in seen_ids and item.get("status") != "inactive":
+                        seen_ids.add(item_id)
+                        stock_data.append({
+                            "item_id": item_id,
+                            "sku": item.get("sku"),
+                            "stock_on_hand": item.get("stock_on_hand", 0)
+                        })
+                
+                if not response.get("page_context", {}).get("has_more_page", False):
+                    break
+                page += 1
+                if page > 20:
+                    break
+        
+        print(f"STOCK: Returning {len(stock_data)} stock levels")
+        
+        return {
+            "stock": stock_data,
+            "updated_at": datetime.utcnow().isoformat()
+        }
+    except Exception as e:
+        print(f"STOCK ERROR: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -509,6 +563,8 @@ async def get_products(
             # Filter by selected brand if specified, otherwise by agent's brands
             filter_brands = [brand] if brand else agent.brands
             items = filter_items_by_brand(items, filter_brands)
+            # Sort by SKU alphabetically
+            items.sort(key=lambda x: (x.get("sku") or "").upper())
             print(f"DEBUG: After filter by {filter_brands}: {len(items)} items")
         elif brand:
             # User selected a specific brand - search for it using variations
@@ -531,6 +587,9 @@ async def get_products(
             # Filter to make sure it's actually that brand
             items = filter_items_by_brand(items, [brand])
             print(f"DEBUG: After filter: {len(items)} items")
+            
+            # Sort by SKU alphabetically
+            items.sort(key=lambda x: (x.get("sku") or "").upper())
             
             # Paginate
             per_page = 30
@@ -555,8 +614,8 @@ async def get_products(
             
             # Filter to ensure only agent's brands
             items = filter_items_by_brand(items, agent.brands)
-            # Sort by name
-            items.sort(key=lambda x: x.get("name", ""))
+            # Sort by SKU alphabetically
+            items.sort(key=lambda x: (x.get("sku") or "").upper())
             
             # Paginate the combined results
             per_page = 30
@@ -676,119 +735,37 @@ async def get_product_image(item_id: str):
         raise HTTPException(status_code=404, detail="Image not found")
 
 
-# EAN lookup cache - maps EAN to item data
-_ean_cache = {}
-_ean_cache_built = False
-
-
-async def build_ean_cache():
-    """Build EAN lookup cache from all items"""
-    global _ean_cache, _ean_cache_built
-    
-    if _ean_cache_built:
-        return
-    
-    print("BARCODE: Building EAN cache...")
-    _ean_cache = {}
-    page = 1
-    total = 0
-    
-    while True:
-        try:
-            # Call Zoho directly to get ALL items (no search filter)
-            params = {"page": page, "per_page": 200}
-            response = await zoho_api.zoho_request("GET", "items", params=params)
-            items = response.get("items", [])
-            
-            print(f"BARCODE: Page {page} returned {len(items)} items")
-            
-            if not items:
-                break
-            
-            for item in items:
-                # Get EAN from various possible fields
-                ean = item.get("ean") or item.get("upc") or item.get("cf_ean") or ""
-                if ean and item.get("status") != "inactive":
-                    _ean_cache[ean] = item
-                    total += 1
-                    
-                # Debug: print first item's EAN field to see what we're getting
-                if page == 1 and total <= 3:
-                    print(f"BARCODE DEBUG: Item {item.get('sku')} has ean='{item.get('ean')}', upc='{item.get('upc')}', cf_ean='{item.get('cf_ean')}'")
-            
-            page += 1
-            
-            # Safety limit
-            if page > 50:
-                break
-                
-        except Exception as e:
-            print(f"BARCODE: Error building cache page {page}: {e}")
-            break
-    
-    _ean_cache_built = True
-    print(f"BARCODE: Cache built with {total} EAN entries from {page-1} pages")
-    
-    # Print some sample EANs for debugging
-    sample_eans = list(_ean_cache.keys())[:5]
-    print(f"BARCODE: Sample EANs in cache: {sample_eans}")
-
-
 @app.get("/api/barcode/{barcode}")
 async def lookup_barcode(
     barcode: str,
     agent: TokenData = Depends(get_current_agent)
 ):
-    """Look up a product by EAN/barcode"""
-    global _ean_cache, _ean_cache_built
-    
+    """Look up a product by EAN/barcode - fast direct search"""
     try:
         print(f"BARCODE: Looking up {barcode}")
         
-        # Build cache if not already built
-        if not _ean_cache_built:
-            await build_ean_cache()
-        
-        # Look up in cache
-        if barcode in _ean_cache:
-            item = _ean_cache[barcode]
-            print(f"BARCODE: Found in cache: {item.get('name')}")
-            
-            sku = item.get("sku", "")
-            return {
-                "found": True,
-                "product": {
-                    "item_id": item.get("item_id"),
-                    "name": item.get("name"),
-                    "sku": sku,
-                    "ean": barcode,
-                    "description": item.get("description", ""),
-                    "rate": item.get("rate", 0),
-                    "stock_on_hand": item.get("stock_on_hand", 0),
-                    "brand": item.get("brand") or item.get("manufacturer") or "",
-                    "unit": item.get("unit", "pcs"),
-                    "pack_qty": _pack_quantities.get(sku)
-                }
-            }
-        
-        # Not in cache - try SKU search as fallback
-        print(f"BARCODE: Not in EAN cache, trying SKU search")
-        response = await zoho_api.get_items(page=1, per_page=10, search=barcode)
+        # Search Zoho directly for the barcode (searches across SKU, EAN, name, etc.)
+        response = await zoho_api.get_items(page=1, per_page=20, search=barcode)
         items = response.get("items", [])
         
+        # Look for exact match on EAN, UPC, or SKU
         for item in items:
-            if item.get("sku", "").upper() == barcode.upper():
+            item_ean = item.get("ean") or item.get("upc") or ""
+            item_sku = item.get("sku") or ""
+            
+            if (item_ean == barcode or item_sku.upper() == barcode.upper()):
                 if item.get("status") == "inactive":
                     return {"found": False, "message": "Product is inactive"}
                 
                 sku = item.get("sku", "")
+                print(f"BARCODE: Found {item.get('name')}")
                 return {
                     "found": True,
                     "product": {
                         "item_id": item.get("item_id"),
                         "name": item.get("name"),
                         "sku": sku,
-                        "ean": item.get("ean") or item.get("upc") or "",
+                        "ean": item_ean or barcode,
                         "description": item.get("description", ""),
                         "rate": item.get("rate", 0),
                         "stock_on_hand": item.get("stock_on_hand", 0),
@@ -866,11 +843,22 @@ async def create_customer(
 ):
     """Create a new customer"""
     try:
+        # Build notes with all the additional info
+        notes_parts = [f"Created by {agent.agent_name} via Sales App"]
+        if customer.billing_address:
+            notes_parts.append(f"\nBilling Address:\n{customer.billing_address}")
+        if customer.shipping_address:
+            notes_parts.append(f"\nShipping Address:\n{customer.shipping_address}")
+        if customer.booking_requirements:
+            notes_parts.append(f"\nBooking In Requirements:\n{customer.booking_requirements}")
+        if customer.payment_terms:
+            notes_parts.append(f"\nPayment Terms: {customer.payment_terms}")
+        
         contact_data = {
             "contact_name": customer.company_name,
             "company_name": customer.company_name,
             "contact_type": "customer",
-            "notes": f"Created by {agent.agent_name} via Sales App"
+            "notes": "\n".join(notes_parts)
         }
         
         if customer.contact_name:
@@ -886,8 +874,16 @@ async def create_customer(
             contact_data["email"] = customer.email
         if customer.phone:
             contact_data["phone"] = customer.phone
+        
+        # Set billing address as structured data if Zoho supports it
         if customer.billing_address:
-            contact_data["billing_address"] = customer.billing_address
+            contact_data["billing_address"] = {
+                "address": customer.billing_address
+            }
+        if customer.shipping_address:
+            contact_data["shipping_address"] = {
+                "address": customer.shipping_address
+            }
         
         response = await zoho_api.create_contact(contact_data)
         contact = response.get("contact", {})
@@ -960,10 +956,42 @@ async def get_orders(
     customer_id: Optional[str] = None,
     agent: TokenData = Depends(get_current_agent)
 ):
-    """Get recent sales orders"""
+    """Get recent sales orders - filtered by agent unless admin"""
     try:
-        response = await zoho_api.get_sales_orders(page=page, customer_id=customer_id)
-        orders = response.get("salesorders", [])
+        # Fetch more orders if we need to filter
+        if is_admin(agent.agent_id):
+            # Admins see all orders
+            response = await zoho_api.get_sales_orders(page=page, customer_id=customer_id)
+            orders = response.get("salesorders", [])
+            has_more = response.get("page_context", {}).get("has_more_page", False)
+        else:
+            # Non-admins only see their own orders
+            # Need to fetch more and filter since Zoho doesn't filter by notes
+            all_orders = []
+            current_page = 1
+            while len(all_orders) < 200:  # Safety limit
+                response = await zoho_api.get_sales_orders(page=current_page, customer_id=customer_id)
+                page_orders = response.get("salesorders", [])
+                if not page_orders:
+                    break
+                all_orders.extend(page_orders)
+                if not response.get("page_context", {}).get("has_more_page", False):
+                    break
+                current_page += 1
+            
+            # Filter to only orders placed by this agent
+            # Orders have notes like "Order placed by Kate\n..."
+            agent_orders = [
+                o for o in all_orders
+                if f"Order placed by {agent.agent_name}" in (o.get("notes") or "")
+            ]
+            
+            # Paginate the filtered results
+            per_page = 20
+            start = (page - 1) * per_page
+            end = start + per_page
+            orders = agent_orders[start:end]
+            has_more = end < len(agent_orders)
         
         return {
             "orders": [{
@@ -975,7 +1003,7 @@ async def get_orders(
                 "status": o.get("status")
             } for o in orders],
             "page": page,
-            "has_more": response.get("page_context", {}).get("has_more_page", False)
+            "has_more": has_more
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -986,10 +1014,20 @@ async def get_order(
     salesorder_id: str,
     agent: TokenData = Depends(get_current_agent)
 ):
-    """Get a single order with full details"""
+    """Get a single order with full details - only if agent has permission"""
     try:
         response = await zoho_api.get_sales_order(salesorder_id)
-        return response.get("salesorder", {})
+        order = response.get("salesorder", {})
+        
+        # Check permission - admins can see all, others only their own
+        if not is_admin(agent.agent_id):
+            notes = order.get("notes") or ""
+            if f"Order placed by {agent.agent_name}" not in notes:
+                raise HTTPException(status_code=403, detail="You don't have permission to view this order")
+        
+        return order
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
