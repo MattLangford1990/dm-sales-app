@@ -13,7 +13,7 @@ import io
 
 import json
 from config import get_settings
-from agents import get_agent, get_agent_brands, verify_agent_pin, list_agents, get_all_brand_patterns, is_admin
+from agents import get_agent, get_agent_brands, verify_agent_pin, list_agents, get_all_brand_patterns, is_admin, list_all_agents_admin, create_agent, update_agent, delete_agent, get_all_brands
 import zoho_api
 
 # Load pack quantities
@@ -354,6 +354,131 @@ async def get_me(agent: TokenData = Depends(get_current_agent)):
         "brands": agent.brands,
         "is_admin": is_admin(agent.agent_id)
     }
+
+
+# ============ Admin Routes ============
+
+class AgentCreate(BaseModel):
+    agent_id: str
+    name: str
+    pin: str
+    brands: List[str]
+    commission_rate: float = 0.125
+
+class AgentUpdate(BaseModel):
+    name: Optional[str] = None
+    pin: Optional[str] = None
+    brands: Optional[List[str]] = None
+    commission_rate: Optional[float] = None
+    active: Optional[bool] = None
+
+
+def require_admin(agent: TokenData = Depends(get_current_agent)) -> TokenData:
+    """Dependency that requires admin access"""
+    if not is_admin(agent.agent_id):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Admin access required"
+        )
+    return agent
+
+
+@app.get("/api/admin/agents")
+async def admin_list_agents(agent: TokenData = Depends(require_admin)):
+    """List all agents with full details (admin only)"""
+    return {
+        "agents": list_all_agents_admin(),
+        "available_brands": get_all_brands()
+    }
+
+
+@app.post("/api/admin/agents")
+async def admin_create_agent(
+    new_agent: AgentCreate,
+    agent: TokenData = Depends(require_admin)
+):
+    """Create a new agent (admin only)"""
+    try:
+        created = create_agent(
+            agent_id=new_agent.agent_id,
+            name=new_agent.name,
+            pin=new_agent.pin,
+            brands=new_agent.brands,
+            commission_rate=new_agent.commission_rate
+        )
+        return {"message": "Agent created successfully", "agent_id": new_agent.agent_id}
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.put("/api/admin/agents/{agent_id}")
+async def admin_update_agent(
+    agent_id: str,
+    updates: AgentUpdate,
+    agent: TokenData = Depends(require_admin)
+):
+    """Update an agent (admin only)"""
+    try:
+        # Convert to dict, excluding None values
+        update_dict = {k: v for k, v in updates.dict().items() if v is not None}
+        updated = update_agent(agent_id, update_dict)
+        return {"message": "Agent updated successfully", "agent_id": agent_id}
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+
+@app.delete("/api/admin/agents/{agent_id}")
+async def admin_delete_agent(
+    agent_id: str,
+    agent: TokenData = Depends(require_admin)
+):
+    """Delete or deactivate an agent (admin only)"""
+    try:
+        delete_agent(agent_id)
+        return {"message": "Agent deleted successfully", "agent_id": agent_id}
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+
+@app.get("/api/admin/stats")
+async def admin_get_stats(agent: TokenData = Depends(require_admin)):
+    """Get admin dashboard stats (admin only)"""
+    try:
+        # Get recent orders for stats
+        response = await zoho_api.get_sales_orders(page=1)
+        orders = response.get("salesorders", [])
+        
+        # Calculate stats
+        today = datetime.now().strftime("%Y-%m-%d")
+        orders_today = [o for o in orders if o.get("date") == today]
+        
+        # Get orders by agent (from notes)
+        agents_list = list_all_agents_admin()
+        orders_by_agent = {}
+        for a in agents_list:
+            agent_name = a["name"]
+            count = len([o for o in orders if f"Order placed by {agent_name}" in (o.get("notes") or "")])
+            if count > 0:
+                orders_by_agent[agent_name] = count
+        
+        return {
+            "total_agents": len(agents_list),
+            "active_agents": len([a for a in agents_list if a.get("active", True)]),
+            "orders_today": len(orders_today),
+            "orders_today_value": sum(o.get("total", 0) for o in orders_today),
+            "recent_orders": len(orders),
+            "orders_by_agent": orders_by_agent
+        }
+    except Exception as e:
+        print(f"ADMIN STATS ERROR: {e}")
+        return {
+            "total_agents": len(list_all_agents_admin()),
+            "active_agents": len([a for a in list_all_agents_admin() if a.get("active", True)]),
+            "orders_today": 0,
+            "orders_today_value": 0,
+            "recent_orders": 0,
+            "orders_by_agent": {}
+        }
 
 
 # ============ Products Routes ============

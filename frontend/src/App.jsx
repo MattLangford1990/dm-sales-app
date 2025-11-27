@@ -6,7 +6,7 @@ import * as syncService from './syncService'
 // API helpers
 // In native app, use the deployed backend URL. In browser, use relative path (proxied in dev)
 const isNativeApp = window.Capacitor?.isNativePlatform?.() || false
-const API_BASE = isNativeApp ? 'https://dm-sales-app.onrender.com/api' : '/api'
+const API_BASE = isNativeApp ? 'https://appdmbrands.com/api' : '/api'
 
 async function apiRequest(endpoint, options = {}) {
   const token = localStorage.getItem('token')
@@ -44,6 +44,20 @@ function AuthProvider({ children }) {
     const saved = localStorage.getItem('agent')
     return saved ? JSON.parse(saved) : null
   })
+  const [isAdmin, setIsAdmin] = useState(() => {
+    const saved = localStorage.getItem('isAdmin')
+    return saved === 'true'
+  })
+  
+  // Check admin status on mount if logged in
+  useEffect(() => {
+    if (agent && navigator.onLine) {
+      apiRequest('/auth/me').then(data => {
+        setIsAdmin(data.is_admin || false)
+        localStorage.setItem('isAdmin', data.is_admin ? 'true' : 'false')
+      }).catch(() => {})
+    }
+  }, [])
   
   const login = async (agentId, pin) => {
     // Try online login first
@@ -60,6 +74,15 @@ function AuthProvider({ children }) {
           brands: data.brands
         }))
         setAgent({ name: data.agent_name, brands: data.brands })
+        
+        // Check admin status
+        try {
+          const meData = await apiRequest('/auth/me')
+          setIsAdmin(meData.is_admin || false)
+          localStorage.setItem('isAdmin', meData.is_admin ? 'true' : 'false')
+        } catch (err) {
+          console.warn('Failed to check admin status')
+        }
         
         // Save credentials for offline use
         try {
@@ -111,11 +134,13 @@ function AuthProvider({ children }) {
   const logout = () => {
     localStorage.removeItem('token')
     localStorage.removeItem('agent')
+    localStorage.removeItem('isAdmin')
     setAgent(null)
+    setIsAdmin(false)
   }
   
   return (
-    <AuthContext.Provider value={{ agent, login, logout }}>
+    <AuthContext.Provider value={{ agent, isAdmin, login, logout }}>
       {children}
     </AuthContext.Provider>
   )
@@ -1785,6 +1810,430 @@ function OrderSuccessModal({ order, onClose }) {
   )
 }
 
+// Admin Panel (only for admins)
+function AdminTab() {
+  const [agents, setAgents] = useState([])
+  const [availableBrands, setAvailableBrands] = useState([])
+  const [stats, setStats] = useState(null)
+  const [loading, setLoading] = useState(true)
+  const [editingAgent, setEditingAgent] = useState(null)
+  const [showNewAgent, setShowNewAgent] = useState(false)
+  const { addToast } = useToast()
+  
+  const loadData = async () => {
+    try {
+      setLoading(true)
+      const [agentsData, statsData] = await Promise.all([
+        apiRequest('/admin/agents'),
+        apiRequest('/admin/stats')
+      ])
+      setAgents(agentsData.agents || [])
+      setAvailableBrands(agentsData.available_brands || [])
+      setStats(statsData)
+    } catch (err) {
+      addToast('Failed to load admin data: ' + err.message, 'error')
+    } finally {
+      setLoading(false)
+    }
+  }
+  
+  useEffect(() => {
+    loadData()
+  }, [])
+  
+  const handleUpdateAgent = async (agentId, updates) => {
+    try {
+      await apiRequest(`/admin/agents/${agentId}`, {
+        method: 'PUT',
+        body: JSON.stringify(updates)
+      })
+      addToast('Agent updated', 'success')
+      setEditingAgent(null)
+      loadData()
+    } catch (err) {
+      addToast('Failed to update: ' + err.message, 'error')
+    }
+  }
+  
+  const handleCreateAgent = async (agentData) => {
+    try {
+      await apiRequest('/admin/agents', {
+        method: 'POST',
+        body: JSON.stringify(agentData)
+      })
+      addToast('Agent created', 'success')
+      setShowNewAgent(false)
+      loadData()
+    } catch (err) {
+      addToast('Failed to create: ' + err.message, 'error')
+    }
+  }
+  
+  const handleDeleteAgent = async (agentId) => {
+    if (!confirm('Are you sure you want to delete this agent?')) return
+    try {
+      await apiRequest(`/admin/agents/${agentId}`, { method: 'DELETE' })
+      addToast('Agent deleted', 'success')
+      loadData()
+    } catch (err) {
+      addToast('Failed to delete: ' + err.message, 'error')
+    }
+  }
+  
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-full">
+        <div className="animate-spin rounded-full h-12 w-12 border-4 border-primary-600 border-t-transparent"></div>
+      </div>
+    )
+  }
+  
+  return (
+    <div className="h-full overflow-auto p-4 space-y-4">
+      {/* Stats Cards */}
+      {stats && (
+        <div className="grid grid-cols-2 gap-3">
+          <div className="bg-white rounded-xl p-4 border border-gray-200">
+            <div className="text-2xl font-bold text-primary-600">{stats.active_agents}</div>
+            <div className="text-sm text-gray-500">Active Agents</div>
+          </div>
+          <div className="bg-white rounded-xl p-4 border border-gray-200">
+            <div className="text-2xl font-bold text-green-600">{stats.orders_today}</div>
+            <div className="text-sm text-gray-500">Orders Today</div>
+          </div>
+          <div className="bg-white rounded-xl p-4 border border-gray-200">
+            <div className="text-2xl font-bold text-blue-600">£{stats.orders_today_value?.toFixed(0) || 0}</div>
+            <div className="text-sm text-gray-500">Today's Value</div>
+          </div>
+          <div className="bg-white rounded-xl p-4 border border-gray-200">
+            <div className="text-2xl font-bold text-gray-600">{stats.recent_orders}</div>
+            <div className="text-sm text-gray-500">Recent Orders</div>
+          </div>
+        </div>
+      )}
+      
+      {/* Orders by Agent */}
+      {stats?.orders_by_agent && Object.keys(stats.orders_by_agent).length > 0 && (
+        <div className="bg-white rounded-xl p-4 border border-gray-200">
+          <h3 className="font-semibold mb-3">Recent Orders by Agent</h3>
+          <div className="space-y-2">
+            {Object.entries(stats.orders_by_agent).map(([name, count]) => (
+              <div key={name} className="flex justify-between text-sm">
+                <span>{name}</span>
+                <span className="font-medium">{count}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+      
+      {/* Agents List */}
+      <div className="bg-white rounded-xl border border-gray-200">
+        <div className="p-4 border-b border-gray-200 flex justify-between items-center">
+          <h3 className="font-semibold text-lg">Agents</h3>
+          <button
+            onClick={() => setShowNewAgent(true)}
+            className="bg-primary-600 text-white px-4 py-2 rounded-lg text-sm font-medium"
+          >
+            + New Agent
+          </button>
+        </div>
+        
+        <div className="divide-y divide-gray-100">
+          {agents.map(agent => (
+            <div key={agent.id} className="p-4">
+              <div className="flex items-start justify-between">
+                <div className="flex-1">
+                  <div className="flex items-center gap-2">
+                    <span className="font-medium">{agent.name}</span>
+                    {agent.is_admin && (
+                      <span className="text-xs bg-purple-100 text-purple-700 px-2 py-0.5 rounded">Admin</span>
+                    )}
+                    {!agent.active && (
+                      <span className="text-xs bg-red-100 text-red-700 px-2 py-0.5 rounded">Inactive</span>
+                    )}
+                  </div>
+                  <div className="text-sm text-gray-500 mt-1">@{agent.id}</div>
+                  <div className="text-xs text-gray-400 mt-1">
+                    {agent.brands?.length === 8 ? 'All brands' : agent.brands?.join(', ')}
+                  </div>
+                </div>
+                <button
+                  onClick={() => setEditingAgent(agent)}
+                  className="text-primary-600 text-sm font-medium"
+                >
+                  Edit
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+      
+      {/* Edit Agent Modal */}
+      {editingAgent && (
+        <AgentEditModal
+          agent={editingAgent}
+          availableBrands={availableBrands}
+          onSave={(updates) => handleUpdateAgent(editingAgent.id, updates)}
+          onDelete={() => handleDeleteAgent(editingAgent.id)}
+          onClose={() => setEditingAgent(null)}
+        />
+      )}
+      
+      {/* New Agent Modal */}
+      {showNewAgent && (
+        <NewAgentModal
+          availableBrands={availableBrands}
+          onSave={handleCreateAgent}
+          onClose={() => setShowNewAgent(false)}
+        />
+      )}
+    </div>
+  )
+}
+
+function AgentEditModal({ agent, availableBrands, onSave, onDelete, onClose }) {
+  const [name, setName] = useState(agent.name)
+  const [pin, setPin] = useState('')
+  const [brands, setBrands] = useState(agent.brands || [])
+  const [active, setActive] = useState(agent.active !== false)
+  const [commission, setCommission] = useState((agent.commission_rate || 0.125) * 100)
+  
+  const handleSave = () => {
+    const updates = { name, brands, active, commission_rate: commission / 100 }
+    if (pin) updates.pin = pin
+    onSave(updates)
+  }
+  
+  const toggleBrand = (brand) => {
+    setBrands(prev => 
+      prev.includes(brand) 
+        ? prev.filter(b => b !== brand)
+        : [...prev, brand]
+    )
+  }
+  
+  return (
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+      <div className="bg-white rounded-2xl w-full max-w-md max-h-[90vh] overflow-auto">
+        <div className="p-4 border-b border-gray-200 flex justify-between items-center">
+          <h2 className="text-lg font-bold">Edit Agent</h2>
+          <button onClick={onClose} className="text-gray-500 text-2xl">&times;</button>
+        </div>
+        
+        <div className="p-4 space-y-4">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Username</label>
+            <input
+              type="text"
+              value={agent.id}
+              disabled
+              className="w-full px-3 py-2 border border-gray-200 rounded-lg bg-gray-50 text-gray-500"
+            />
+          </div>
+          
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Display Name</label>
+            <input
+              type="text"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg"
+            />
+          </div>
+          
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">New PIN (leave blank to keep)</label>
+            <input
+              type="password"
+              value={pin}
+              onChange={(e) => setPin(e.target.value)}
+              placeholder="••••"
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg"
+            />
+          </div>
+          
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Commission Rate (%)</label>
+            <input
+              type="number"
+              value={commission}
+              onChange={(e) => setCommission(parseFloat(e.target.value) || 0)}
+              step="0.5"
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg"
+            />
+          </div>
+          
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">Brands</label>
+            <div className="flex flex-wrap gap-2">
+              {availableBrands.map(brand => (
+                <button
+                  key={brand}
+                  type="button"
+                  onClick={() => toggleBrand(brand)}
+                  className={`px-3 py-1 rounded-full text-sm font-medium transition ${
+                    brands.includes(brand)
+                      ? 'bg-primary-600 text-white'
+                      : 'bg-gray-100 text-gray-700'
+                  }`}
+                >
+                  {brand}
+                </button>
+              ))}
+            </div>
+          </div>
+          
+          <div className="flex items-center justify-between">
+            <span className="text-sm font-medium text-gray-700">Active</span>
+            <button
+              type="button"
+              onClick={() => setActive(!active)}
+              className={`w-12 h-6 rounded-full transition ${active ? 'bg-green-500' : 'bg-gray-300'}`}
+            >
+              <div className={`w-5 h-5 bg-white rounded-full shadow transform transition ${active ? 'translate-x-6' : 'translate-x-0.5'}`} />
+            </button>
+          </div>
+        </div>
+        
+        <div className="p-4 border-t border-gray-200 space-y-2">
+          <button
+            onClick={handleSave}
+            className="w-full py-3 bg-primary-600 text-white rounded-xl font-semibold"
+          >
+            Save Changes
+          </button>
+          {!agent.is_admin && (
+            <button
+              onClick={onDelete}
+              className="w-full py-3 bg-red-100 text-red-600 rounded-xl font-semibold"
+            >
+              Delete Agent
+            </button>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function NewAgentModal({ availableBrands, onSave, onClose }) {
+  const [username, setUsername] = useState('')
+  const [name, setName] = useState('')
+  const [pin, setPin] = useState('')
+  const [brands, setBrands] = useState([])
+  const [commission, setCommission] = useState(12.5)
+  
+  const handleSave = () => {
+    if (!username || !name || !pin) {
+      alert('Please fill in username, name and PIN')
+      return
+    }
+    onSave({
+      agent_id: username.toLowerCase().replace(/\s+/g, '.'),
+      name,
+      pin,
+      brands,
+      commission_rate: commission / 100
+    })
+  }
+  
+  const toggleBrand = (brand) => {
+    setBrands(prev => 
+      prev.includes(brand) 
+        ? prev.filter(b => b !== brand)
+        : [...prev, brand]
+    )
+  }
+  
+  return (
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+      <div className="bg-white rounded-2xl w-full max-w-md max-h-[90vh] overflow-auto">
+        <div className="p-4 border-b border-gray-200 flex justify-between items-center">
+          <h2 className="text-lg font-bold">New Agent</h2>
+          <button onClick={onClose} className="text-gray-500 text-2xl">&times;</button>
+        </div>
+        
+        <div className="p-4 space-y-4">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Username *</label>
+            <input
+              type="text"
+              value={username}
+              onChange={(e) => setUsername(e.target.value)}
+              placeholder="e.g. john.smith"
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg"
+            />
+          </div>
+          
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Display Name *</label>
+            <input
+              type="text"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder="e.g. John Smith"
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg"
+            />
+          </div>
+          
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">PIN *</label>
+            <input
+              type="password"
+              value={pin}
+              onChange={(e) => setPin(e.target.value)}
+              placeholder="4 digits"
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg"
+            />
+          </div>
+          
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Commission Rate (%)</label>
+            <input
+              type="number"
+              value={commission}
+              onChange={(e) => setCommission(parseFloat(e.target.value) || 0)}
+              step="0.5"
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg"
+            />
+          </div>
+          
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">Brands</label>
+            <div className="flex flex-wrap gap-2">
+              {availableBrands.map(brand => (
+                <button
+                  key={brand}
+                  type="button"
+                  onClick={() => toggleBrand(brand)}
+                  className={`px-3 py-1 rounded-full text-sm font-medium transition ${
+                    brands.includes(brand)
+                      ? 'bg-primary-600 text-white'
+                      : 'bg-gray-100 text-gray-700'
+                  }`}
+                >
+                  {brand}
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+        
+        <div className="p-4 border-t border-gray-200">
+          <button
+            onClick={handleSave}
+            className="w-full py-3 bg-primary-600 text-white rounded-xl font-semibold"
+          >
+            Create Agent
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // Settings Tab with Sync Controls
 function SettingsTab() {
   const { agent, logout } = useAuth()
@@ -1929,6 +2378,7 @@ function SettingsTab() {
 
 function TabBar({ activeTab, setActiveTab }) {
   const { cartCount, cartTotal } = useCart()
+  const { isAdmin } = useAuth()
   const offline = useOffline()
   
   const tabs = [
@@ -1938,6 +2388,11 @@ function TabBar({ activeTab, setActiveTab }) {
     { id: 'cart', label: cartCount > 0 ? `£${cartTotal.toFixed(0)}` : 'Cart', icon: '🛒', badge: cartCount },
     { id: 'settings', label: 'Settings', icon: '⚙️', badge: offline?.syncStatus?.pendingOrderCount || 0 }
   ]
+  
+  // Add admin tab for admins
+  if (isAdmin) {
+    tabs.splice(4, 0, { id: 'admin', label: 'Admin', icon: '👑' })
+  }
   
   return (
     <div className="bg-white border-t border-gray-200 safe-area-bottom">
@@ -2029,7 +2484,8 @@ function MainApp() {
     customers: 'Customers',
     cart: 'Cart',
     orders: 'Recent Orders',
-    settings: 'Settings'
+    settings: 'Settings',
+    admin: 'Admin Panel'
   }
   
   // Show landing page if home selected
@@ -2053,6 +2509,7 @@ function MainApp() {
         {activeSection === 'cart' && <CartTab onOrderSubmitted={handleOrderSubmitted} />}
         {activeSection === 'orders' && <OrdersTab />}
         {activeSection === 'settings' && <SettingsTab />}
+        {activeSection === 'admin' && <AdminTab />}
       </div>
       
       <TabBar activeTab={activeSection} setActiveTab={setActiveSection} />
