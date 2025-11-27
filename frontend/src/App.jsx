@@ -422,110 +422,40 @@ function LoadingSpinner() {
   )
 }
 
-// Offline-aware image component - checks IndexedDB cache first, then API
+// Offline-aware image component - ONLY loads from IndexedDB cache to avoid API calls
+// Images must be pre-downloaded using "Download Images for Offline" button
 function OfflineImage({ itemId, imageUrl, alt, className, fallbackIcon = '📦' }) {
   const [imageSrc, setImageSrc] = useState(null)
-  const [showFallback, setShowFallback] = useState(false)
-  const [loading, setLoading] = useState(true)
-  const offlineContext = useOffline()
-  const isOnline = offlineContext?.isOnline ?? navigator.onLine
+  const [checked, setChecked] = useState(false)
   
   useEffect(() => {
     if (!itemId) {
-      setShowFallback(true)
-      setLoading(false)
+      setChecked(true)
       return
     }
     
     let mounted = true
-    setLoading(true)
-    setShowFallback(false)
-    setImageSrc(null)
     
-    const loadImage = async () => {
-      // 1. Check IndexedDB cache first
+    // Only check IndexedDB cache - NO API calls!
+    const checkCache = async () => {
       try {
         const cachedImage = await offlineStore.getImage(itemId)
         if (mounted && cachedImage) {
-          console.log(`IMAGE: Cache hit for ${itemId}`)
           setImageSrc(cachedImage)
-          setLoading(false)
-          return
         }
       } catch (err) {
-        console.log(`IMAGE: Cache check error for ${itemId}:`, err)
+        // Cache check failed, show fallback
       }
-      
-      // 2. Not in cache - if offline, show fallback
-      if (!isOnline) {
-        console.log(`IMAGE: Offline, no cache for ${itemId}`)
-        if (mounted) {
-          setShowFallback(true)
-          setLoading(false)
-        }
-        return
-      }
-      
-      // 3. Online and not cached - fetch from API
-      console.log(`IMAGE: Loading from API for ${itemId}`)
-      const token = localStorage.getItem('token')
-      const apiUrl = `${API_BASE}/products/${itemId}/image`
-      
-      try {
-        const response = await fetch(apiUrl, {
-          headers: token ? { 'Authorization': `Bearer ${token}` } : {}
-        })
-        
-        if (response.ok) {
-          const blob = await response.blob()
-          console.log(`IMAGE: Got blob for ${itemId}, size: ${blob.size}, type: ${blob.type}`)
-          if (blob.size > 100) {
-            // Save to IndexedDB for future use
-            try {
-              await offlineStore.saveImage(itemId, blob)
-              console.log(`IMAGE: Saved to cache for ${itemId}`)
-            } catch (cacheErr) {
-              console.log(`IMAGE: Failed to cache ${itemId}:`, cacheErr)
-            }
-            // Use base64 for display
-            const reader = new FileReader()
-            reader.onloadend = () => {
-              if (mounted) {
-                setImageSrc(reader.result)
-                setLoading(false)
-              }
-            }
-            reader.onerror = () => {
-              console.log(`IMAGE: FileReader error for ${itemId}`)
-              if (mounted) {
-                setShowFallback(true)
-                setLoading(false)
-              }
-            }
-            reader.readAsDataURL(blob)
-            return
-          }
-        }
-        console.log(`IMAGE: No image or bad response for ${itemId}, status: ${response.status}`)
-        if (mounted) {
-          setShowFallback(true)
-          setLoading(false)
-        }
-      } catch (err) {
-        console.log(`IMAGE: Fetch error for ${itemId}:`, err)
-        if (mounted) {
-          setShowFallback(true)
-          setLoading(false)
-        }
-      }
+      if (mounted) setChecked(true)
     }
     
-    loadImage()
+    checkCache()
     
     return () => { mounted = false }
-  }, [itemId, isOnline])
+  }, [itemId])
   
-  if (loading) {
+  // Show loading spinner briefly while checking cache
+  if (!checked) {
     return (
       <div className={`flex items-center justify-center bg-gray-100 ${className}`}>
         <div className="w-6 h-6 border-2 border-gray-300 border-t-gray-600 rounded-full animate-spin"></div>
@@ -533,7 +463,8 @@ function OfflineImage({ itemId, imageUrl, alt, className, fallbackIcon = '📦' 
     )
   }
   
-  if (showFallback || !imageSrc) {
+  // Show fallback if no cached image
+  if (!imageSrc) {
     return (
       <div className={`flex items-center justify-center bg-gray-100 ${className}`}>
         <span className="text-4xl">{fallbackIcon}</span>
@@ -546,10 +477,7 @@ function OfflineImage({ itemId, imageUrl, alt, className, fallbackIcon = '📦' 
       src={imageSrc}
       alt={alt}
       className={className}
-      onError={() => {
-        console.log(`IMAGE: img onError for ${itemId}`)
-        setShowFallback(true)
-      }}
+      onError={() => setImageSrc(null)}
     />
   )
 }
@@ -2572,8 +2500,8 @@ function SettingsTab() {
           {isDownloadingImages ? syncProgress || 'Downloading...' : '🖼️ Download Images for Offline'}
         </button>
         <p className="text-xs text-gray-500 mt-2 text-center">
-          Pre-downloads images so they don't load each time you view products.
-          Only downloads images not already cached.
+          Downloads product images to your device.
+          Images only appear after downloading.
         </p>
       </div>
       

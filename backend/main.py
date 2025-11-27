@@ -656,45 +656,38 @@ async def get_products(
     brand: Optional[str] = None,
     agent: TokenData = Depends(get_current_agent)
 ):
-    """Get products filtered by agent's brands - uses server-side cache"""
+    """Get products filtered by agent's brands - ALWAYS uses server-side cache"""
     try:
-        items = []
-        has_more = False
+        # ALWAYS use cached items - never hit Zoho API directly!
+        all_zoho_items = await zoho_api.get_all_items_cached()
         
-        print(f"DEBUG: page={page}, search={search}, brand={brand}, agent.brands={agent.brands}")
+        # Filter by brand
+        filter_brands = [brand] if brand else agent.brands
+        items = filter_items_by_brand(all_zoho_items, filter_brands)
         
+        # Filter out inactive
+        items = [i for i in items if i.get("status") != "inactive"]
+        
+        # Apply search filter LOCALLY (no API call!)
         if search:
-            # User is searching - use Zoho search API for better text matching
-            response = await zoho_api.get_items(page=page, search=search)
-            items = response.get("items", [])
-            has_more = response.get("page_context", {}).get("has_more_page", False)
-            print(f"DEBUG: Search returned {len(items)} items")
-            # Filter by selected brand if specified, otherwise by agent's brands
-            filter_brands = [brand] if brand else agent.brands
-            items = filter_items_by_brand(items, filter_brands)
-            # Sort by SKU alphabetically
-            items.sort(key=lambda x: (x.get("sku") or "").upper())
-            print(f"DEBUG: After filter by {filter_brands}: {len(items)} items")
-        else:
-            # No search - use cached items (saves API calls!)
-            all_zoho_items = await zoho_api.get_all_items_cached()
-            
-            # Filter by brand
-            filter_brands = [brand] if brand else agent.brands
-            items = filter_items_by_brand(all_zoho_items, filter_brands)
-            
-            # Filter out inactive
-            items = [i for i in items if i.get("status") != "inactive"]
-            
-            # Sort by SKU alphabetically
-            items.sort(key=lambda x: (x.get("sku") or "").upper())
-            
-            # Paginate
-            per_page = 30
-            start = (page - 1) * per_page
-            end = start + per_page
-            has_more = end < len(items)
-            items = items[start:end]
+            search_lower = search.lower()
+            items = [
+                i for i in items
+                if search_lower in (i.get("name") or "").lower()
+                or search_lower in (i.get("sku") or "").lower()
+                or search_lower in (i.get("ean") or i.get("upc") or "").lower()
+                or search_lower in (i.get("description") or "").lower()
+            ]
+        
+        # Sort by SKU alphabetically
+        items.sort(key=lambda x: (x.get("sku") or "").upper())
+        
+        # Paginate
+        per_page = 30
+        start = (page - 1) * per_page
+        end = start + per_page
+        has_more = end < len(items)
+        items = items[start:end]
         
         # Transform for frontend (only include selling price, not purchase price)
         # Filter out inactive items
@@ -732,22 +725,29 @@ async def get_product(
     item_id: str,
     agent: TokenData = Depends(get_current_agent)
 ):
-    """Get a single product with current stock"""
+    """Get a single product with current stock - uses cache"""
     try:
-        response = await zoho_api.get_item(item_id)
-        item = response.get("item", {})
+        # Use cached items - no API call!
+        all_items = await zoho_api.get_all_items_cached()
         
-        return {
-            "item_id": item.get("item_id"),
-            "name": item.get("name"),
-            "sku": item.get("sku"),
-            "description": item.get("description", ""),
-            "rate": item.get("rate", 0),
-            "stock_on_hand": item.get("stock_on_hand", 0),
-            "image_url": item.get("image_url"),
-            "brand": item.get("brand") or item.get("manufacturer") or item.get("cf_brand", ""),
-            "unit": item.get("unit", "pcs")
-        }
+        # Find the item
+        for item in all_items:
+            if item.get("item_id") == item_id:
+                return {
+                    "item_id": item.get("item_id"),
+                    "name": item.get("name"),
+                    "sku": item.get("sku"),
+                    "description": item.get("description", ""),
+                    "rate": item.get("rate", 0),
+                    "stock_on_hand": item.get("stock_on_hand", 0),
+                    "image_url": item.get("image_url"),
+                    "brand": item.get("brand") or item.get("manufacturer") or item.get("cf_brand", ""),
+                    "unit": item.get("unit", "pcs")
+                }
+        
+        raise HTTPException(status_code=404, detail="Product not found")
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -780,22 +780,26 @@ async def lookup_barcode(
     barcode: str,
     agent: TokenData = Depends(get_current_agent)
 ):
-    """Look up a product by EAN/barcode - fast direct search"""
+    """Look up a product by EAN/barcode - uses cache to avoid API calls"""
     try:
         print(f"BARCODE: Looking up {barcode}")
         
-        # Search Zoho directly for the barcode (searches across SKU, EAN, name, etc.)
-        response = await zoho_api.get_items(page=1, per_page=20, search=barcode)
-        items = response.get("items", [])
+        # Use cached items - no API call!
+        all_items = await zoho_api.get_all_items_cached()
         
         # Look for exact match on EAN, UPC, or SKU
-        for item in items:
+        barcode_upper = barcode.upper()
+        for item in all_items:
             item_ean = item.get("ean") or item.get("upc") or ""
             item_sku = item.get("sku") or ""
             
-            if (item_ean == barcode or item_sku.upper() == barcode.upper()):
+            if (item_ean == barcode or item_sku.upper() == barcode_upper):
                 if item.get("status") == "inactive":
                     return {"found": False, "message": "Product is inactive"}
+                
+                # Verify agent has access to this brand
+                if not filter_items_by_brand([item], agent.brands):
+                    return {"found": False, "message": "Product not available for your brands"}
                 
                 sku = item.get("sku", "")
                 print(f"BARCODE: Found {item.get('name')}")
