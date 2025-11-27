@@ -440,6 +440,19 @@ async def admin_delete_agent(
         raise HTTPException(status_code=404, detail=str(e))
 
 
+@app.post("/api/admin/refresh-cache")
+async def admin_refresh_cache(agent: TokenData = Depends(require_admin)):
+    """Force refresh of the products cache (admin only)"""
+    zoho_api.invalidate_items_cache()
+    # Trigger a fresh fetch
+    items = await zoho_api.get_all_items_cached()
+    return {
+        "message": "Cache refreshed successfully",
+        "total_items": len(items),
+        "refreshed_at": datetime.utcnow().isoformat()
+    }
+
+
 @app.get("/api/admin/stats")
 async def admin_get_stats(agent: TokenData = Depends(require_admin)):
     """Get admin dashboard stats (admin only)"""
@@ -513,36 +526,18 @@ def filter_items_by_brand(items: List, brands: List[str]) -> List:
 async def sync_products(
     agent: TokenData = Depends(get_current_agent)
 ):
-    """Get ALL products for offline sync - no pagination"""
+    """Get ALL products for offline sync - uses server-side cache to minimize API calls"""
     try:
         print(f"SYNC: Starting product sync for {agent.agent_name}")
         
-        # Get all brand patterns for this agent
-        brand_patterns = get_all_brand_patterns(agent.brands)
-        seen_ids = set()
-        all_items = []
+        # Use cached items - only hits Zoho API every 30 minutes!
+        all_zoho_items = await zoho_api.get_all_items_cached()
         
-        # Fetch products for each brand pattern
-        for brand_term in brand_patterns:
-            page = 1
-            while True:
-                response = await zoho_api.get_items(page=page, per_page=200, search=brand_term)
-                items = response.get("items", [])
-                
-                for item in items:
-                    item_id = item.get("item_id")
-                    if item_id not in seen_ids and item.get("status") != "inactive":
-                        seen_ids.add(item_id)
-                        all_items.append(item)
-                
-                if not response.get("page_context", {}).get("has_more_page", False):
-                    break
-                page += 1
-                if page > 20:  # Safety limit per brand
-                    break
+        # Filter to agent's brands (done locally, no API calls)
+        all_items = filter_items_by_brand(all_zoho_items, agent.brands)
         
-        # Filter to ensure only agent's brands
-        all_items = filter_items_by_brand(all_items, agent.brands)
+        # Filter out inactive items
+        all_items = [item for item in all_items if item.get("status") != "inactive"]
         
         # Sort by SKU alphabetically
         all_items.sort(key=lambda x: (x.get("sku") or "").upper())
@@ -564,7 +559,7 @@ async def sync_products(
                 "pack_qty": _pack_quantities.get(sku)
             })
         
-        print(f"SYNC: Returning {len(products)} products")
+        print(f"SYNC: Returning {len(products)} products for {agent.agent_name}")
         
         return {
             "products": products,
@@ -580,39 +575,27 @@ async def sync_products(
 async def get_stock_levels(
     agent: TokenData = Depends(get_current_agent)
 ):
-    """Get lightweight stock levels only - for periodic refresh (~50KB vs 1MB)"""
+    """Get lightweight stock levels only - uses server-side cache"""
     try:
         print(f"STOCK: Getting stock levels for {agent.agent_name}")
         
-        # Get all brand patterns for this agent
-        brand_patterns = get_all_brand_patterns(agent.brands)
-        seen_ids = set()
+        # Use cached items - only hits Zoho API every 30 minutes!
+        all_zoho_items = await zoho_api.get_all_items_cached()
+        
+        # Filter to agent's brands (done locally, no API calls)
+        agent_items = filter_items_by_brand(all_zoho_items, agent.brands)
+        
+        # Build stock data
         stock_data = []
+        for item in agent_items:
+            if item.get("status") != "inactive":
+                stock_data.append({
+                    "item_id": item.get("item_id"),
+                    "sku": item.get("sku"),
+                    "stock_on_hand": item.get("stock_on_hand", 0)
+                })
         
-        # Fetch products for each brand pattern
-        for brand_term in brand_patterns:
-            page = 1
-            while True:
-                response = await zoho_api.get_items(page=page, per_page=200, search=brand_term)
-                items = response.get("items", [])
-                
-                for item in items:
-                    item_id = item.get("item_id")
-                    if item_id not in seen_ids and item.get("status") != "inactive":
-                        seen_ids.add(item_id)
-                        stock_data.append({
-                            "item_id": item_id,
-                            "sku": item.get("sku"),
-                            "stock_on_hand": item.get("stock_on_hand", 0)
-                        })
-                
-                if not response.get("page_context", {}).get("has_more_page", False):
-                    break
-                page += 1
-                if page > 20:
-                    break
-        
-        print(f"STOCK: Returning {len(stock_data)} stock levels")
+        print(f"STOCK: Returning {len(stock_data)} stock levels for {agent.agent_name}")
         
         return {
             "stock": stock_data,
@@ -672,7 +655,7 @@ async def get_products(
     brand: Optional[str] = None,
     agent: TokenData = Depends(get_current_agent)
 ):
-    """Get products filtered by agent's brands"""
+    """Get products filtered by agent's brands - uses server-side cache"""
     try:
         items = []
         has_more = False
@@ -680,7 +663,7 @@ async def get_products(
         print(f"DEBUG: page={page}, search={search}, brand={brand}, agent.brands={agent.brands}")
         
         if search:
-            # User is searching - use their search term
+            # User is searching - use Zoho search API for better text matching
             response = await zoho_api.get_items(page=page, search=search)
             items = response.get("items", [])
             has_more = response.get("page_context", {}).get("has_more_page", False)
@@ -691,58 +674,21 @@ async def get_products(
             # Sort by SKU alphabetically
             items.sort(key=lambda x: (x.get("sku") or "").upper())
             print(f"DEBUG: After filter by {filter_brands}: {len(items)} items")
-        elif brand:
-            # User selected a specific brand - search for it using variations
-            brand_patterns = get_all_brand_patterns([brand])
-            print(f"DEBUG: Brand filter '{brand}' -> patterns: {brand_patterns}")
+        else:
+            # No search - use cached items (saves API calls!)
+            all_zoho_items = await zoho_api.get_all_items_cached()
             
-            seen_ids = set()
-            for brand_term in brand_patterns:
-                response = await zoho_api.get_items(page=1, per_page=100, search=brand_term)
-                brand_items = response.get("items", [])
-                print(f"DEBUG: Search '{brand_term}' returned {len(brand_items)} items")
-                
-                for item in brand_items:
-                    item_id = item.get("item_id")
-                    if item_id not in seen_ids:
-                        seen_ids.add(item_id)
-                        items.append(item)
+            # Filter by brand
+            filter_brands = [brand] if brand else agent.brands
+            items = filter_items_by_brand(all_zoho_items, filter_brands)
             
-            print(f"DEBUG: Total unique items: {len(items)}")
-            # Filter to make sure it's actually that brand
-            items = filter_items_by_brand(items, [brand])
-            print(f"DEBUG: After filter: {len(items)} items")
+            # Filter out inactive
+            items = [i for i in items if i.get("status") != "inactive"]
             
             # Sort by SKU alphabetically
             items.sort(key=lambda x: (x.get("sku") or "").upper())
             
             # Paginate
-            per_page = 30
-            start = (page - 1) * per_page
-            end = start + per_page
-            has_more = end < len(items)
-            items = items[start:end]
-        else:
-            # No search - fetch products for each of agent's brands
-            brand_search_terms = get_all_brand_patterns(agent.brands)
-            seen_ids = set()
-            
-            for brand_term in brand_search_terms:
-                response = await zoho_api.get_items(page=1, per_page=50, search=brand_term)
-                brand_items = response.get("items", [])
-                
-                for item in brand_items:
-                    item_id = item.get("item_id")
-                    if item_id not in seen_ids:
-                        seen_ids.add(item_id)
-                        items.append(item)
-            
-            # Filter to ensure only agent's brands
-            items = filter_items_by_brand(items, agent.brands)
-            # Sort by SKU alphabetically
-            items.sort(key=lambda x: (x.get("sku") or "").upper())
-            
-            # Paginate the combined results
             per_page = 30
             start = (page - 1) * per_page
             end = start + per_page

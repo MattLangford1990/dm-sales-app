@@ -11,6 +11,57 @@ _token_cache = {
     "expires_at": None
 }
 
+# ============ PRODUCT CACHE (reduces API calls significantly) ============
+# Caches ALL items from Zoho for 30 minutes
+_all_items_cache = {
+    "items": None,
+    "cached_at": None
+}
+ALL_ITEMS_CACHE_TTL = timedelta(minutes=30)  # Refresh every 30 minutes
+
+async def get_all_items_cached() -> list:
+    """Get all items from Zoho with caching - dramatically reduces API calls"""
+    global _all_items_cache
+    now = datetime.now()
+    
+    # Return cached items if still valid
+    if _all_items_cache["items"] and _all_items_cache["cached_at"]:
+        age = now - _all_items_cache["cached_at"]
+        if age < ALL_ITEMS_CACHE_TTL:
+            print(f"CACHE HIT: Returning {len(_all_items_cache['items'])} cached items (age: {age})")
+            return _all_items_cache["items"]
+    
+    # Fetch all items from Zoho
+    print("CACHE MISS: Fetching all items from Zoho...")
+    all_items = []
+    page = 1
+    
+    while True:
+        response = await get_items(page=page, per_page=200)
+        items = response.get("items", [])
+        all_items.extend(items)
+        print(f"CACHE: Fetched page {page}, got {len(items)} items, total: {len(all_items)}")
+        
+        if not response.get("page_context", {}).get("has_more_page", False):
+            break
+        page += 1
+        if page > 100:  # Safety limit (20,000 items max)
+            break
+    
+    # Update cache
+    _all_items_cache["items"] = all_items
+    _all_items_cache["cached_at"] = now
+    print(f"CACHE: Stored {len(all_items)} items, expires in {ALL_ITEMS_CACHE_TTL}")
+    
+    return all_items
+
+def invalidate_items_cache():
+    """Force refresh of items cache on next request"""
+    global _all_items_cache
+    _all_items_cache["items"] = None
+    _all_items_cache["cached_at"] = None
+    print("CACHE: Items cache invalidated")
+
 # Image cache - stores {item_id: {"data": bytes, "cached_at": datetime}}
 _image_cache = {}
 IMAGE_CACHE_TTL = timedelta(hours=24)  # Cache images for 24 hours

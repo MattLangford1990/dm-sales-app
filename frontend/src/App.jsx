@@ -1225,6 +1225,10 @@ function CustomerSelectModal({ onSelect, onClose }) {
   )
 }
 
+// Constants for freight
+const FREIGHT_FREE_THRESHOLD = 250 // £250 ex VAT
+const DELIVERY_CHARGE = 10 // £10 ex VAT
+
 function CartTab({ onOrderSubmitted }) {
   const { cart, customer, setCustomer, cartTotal, updateQuantity, updateDiscount, clearCart } = useCart()
   const { isOnline, refreshSyncStatus } = useOffline()
@@ -1233,7 +1237,13 @@ function CartTab({ onOrderSubmitted }) {
   const [exporting, setExporting] = useState(false)
   const [error, setError] = useState('')
   const [notes, setNotes] = useState('')
+  const [deliveryDate, setDeliveryDate] = useState('')
   const [showCustomerSelect, setShowCustomerSelect] = useState(false)
+  
+  // Calculate if delivery charge applies
+  const needsDeliveryCharge = cartTotal < FREIGHT_FREE_THRESHOLD
+  const amountToFreeDelivery = FREIGHT_FREE_THRESHOLD - cartTotal
+  const orderTotal = needsDeliveryCharge ? cartTotal + DELIVERY_CHARGE : cartTotal
   
   const handleExportQuote = async () => {
     if (cart.length === 0) {
@@ -1297,6 +1307,11 @@ function CartTab({ onOrderSubmitted }) {
       return
     }
     
+    if (!deliveryDate) {
+      setError('Please select a required delivery date')
+      return
+    }
+    
     setLoading(true)
     setError('')
     
@@ -1304,6 +1319,8 @@ function CartTab({ onOrderSubmitted }) {
       customer_id: customer.contact_id,
       customer_name: customer.company_name,
       notes,
+      delivery_date: deliveryDate,
+      delivery_charge: needsDeliveryCharge ? DELIVERY_CHARGE : 0,
       line_items: cart.map(item => ({
         item_id: item.item_id,
         name: item.name,
@@ -1320,6 +1337,7 @@ function CartTab({ onOrderSubmitted }) {
         await offlineStore.savePendingOrder({ orderData })
         clearCart()
         setNotes('')
+        setDeliveryDate('')
         addToast('Order saved! Will submit when back online.', 'success')
         // Refresh sync status to update pending count
         await refreshSyncStatus()
@@ -1339,6 +1357,7 @@ function CartTab({ onOrderSubmitted }) {
       
       clearCart()
       setNotes('')
+      setDeliveryDate('')
       onOrderSubmitted(result)
     } catch (err) {
       setError(err.message)
@@ -1470,6 +1489,43 @@ function CartTab({ onOrderSubmitted }) {
       
       {cart.length > 0 && (
         <div className="border-t bg-white p-4 space-y-4 safe-area-bottom">
+          {/* Free Delivery Progress Banner */}
+          {needsDeliveryCharge ? (
+            <div className="bg-orange-50 border border-orange-200 rounded-xl p-3">
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-orange-800 font-medium text-sm">🚚 Delivery Charge: £{DELIVERY_CHARGE.toFixed(2)}</span>
+                <span className="text-orange-600 text-sm">£{amountToFreeDelivery.toFixed(2)} to FREE delivery</span>
+              </div>
+              <div className="w-full bg-orange-200 rounded-full h-2">
+                <div 
+                  className="bg-orange-500 h-2 rounded-full transition-all duration-300"
+                  style={{ width: `${Math.min((cartTotal / FREIGHT_FREE_THRESHOLD) * 100, 100)}%` }}
+                />
+              </div>
+              <p className="text-xs text-orange-600 mt-1">Orders over £250 qualify for free delivery</p>
+            </div>
+          ) : (
+            <div className="bg-green-50 border border-green-200 rounded-xl p-3">
+              <div className="flex items-center gap-2">
+                <span className="text-green-600 text-xl">✅</span>
+                <span className="text-green-800 font-medium">FREE Delivery - Order qualifies!</span>
+              </div>
+            </div>
+          )}
+          
+          {/* Required Delivery Date */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">Required Delivery Date *</label>
+            <input
+              type="date"
+              value={deliveryDate}
+              onChange={(e) => setDeliveryDate(e.target.value)}
+              min={new Date().toISOString().split('T')[0]}
+              className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-primary-500 focus:border-transparent outline-none"
+            />
+          </div>
+          
+          {/* Order Notes */}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">Order Notes</label>
             <textarea
@@ -1481,9 +1537,22 @@ function CartTab({ onOrderSubmitted }) {
             />
           </div>
           
-          <div className="flex items-center justify-between text-lg">
-            <span className="font-medium">Total:</span>
-            <span className="font-bold text-primary-600">£{cartTotal.toFixed(2)}</span>
+          {/* Order Summary */}
+          <div className="bg-gray-50 rounded-xl p-3 space-y-2">
+            <div className="flex items-center justify-between text-sm">
+              <span className="text-gray-600">Subtotal:</span>
+              <span className="font-medium">£{cartTotal.toFixed(2)}</span>
+            </div>
+            {needsDeliveryCharge && (
+              <div className="flex items-center justify-between text-sm">
+                <span className="text-gray-600">Delivery:</span>
+                <span className="font-medium text-orange-600">£{DELIVERY_CHARGE.toFixed(2)}</span>
+              </div>
+            )}
+            <div className="flex items-center justify-between text-lg pt-2 border-t border-gray-200">
+              <span className="font-semibold">Total (ex VAT):</span>
+              <span className="font-bold text-primary-600">£{orderTotal.toFixed(2)}</span>
+            </div>
           </div>
           
           {error && (
@@ -1502,7 +1571,7 @@ function CartTab({ onOrderSubmitted }) {
             </button>
             <button
               onClick={handleSubmitOrder}
-              disabled={loading || !customer}
+              disabled={loading || !customer || !deliveryDate}
               className={`flex-1 text-white py-4 rounded-xl font-semibold text-lg disabled:opacity-50 transition ${
                 isOnline ? 'bg-green-600 hover:bg-green-700' : 'bg-orange-500 hover:bg-orange-600'
               }`}
