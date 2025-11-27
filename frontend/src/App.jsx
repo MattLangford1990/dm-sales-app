@@ -325,8 +325,8 @@ function OfflineProvider({ children }) {
   const doSync = async (onProgress) => {
     setIsSyncing(true)
     try {
-      // includeImages: true - downloads product images for offline use
-      await syncService.fullSync({ includeImages: true }, onProgress)
+      // includeImages: false - images load on-demand to save API calls
+      await syncService.fullSync({ includeImages: false }, onProgress)
       await refreshSyncStatus()
     } finally {
       setIsSyncing(false)
@@ -422,8 +422,8 @@ function LoadingSpinner() {
   )
 }
 
-// Offline-aware image component - uses cached images when offline
-function OfflineImage({ itemId, alt, className, fallbackIcon = '📦' }) {
+// Offline-aware image component - ALWAYS checks IndexedDB cache first to avoid API calls
+function OfflineImage({ itemId, imageUrl, alt, className, fallbackIcon = '📦' }) {
   const [imageSrc, setImageSrc] = useState(null)
   const [showFallback, setShowFallback] = useState(false)
   const { isOnline } = useOffline()
@@ -432,20 +432,44 @@ function OfflineImage({ itemId, alt, className, fallbackIcon = '📦' }) {
     let mounted = true
     
     const loadImage = async () => {
-      // If online, use the API directly
-      if (isOnline) {
-        setImageSrc(`${API_BASE}/products/${itemId}/image`)
-        return
-      }
-      
-      // If offline, try to load from cache
+      // ALWAYS check IndexedDB cache first (avoids API calls for cached images)
       try {
         const cachedImage = await offlineStore.getImage(itemId)
         if (mounted && cachedImage) {
           setImageSrc(cachedImage)
-        } else if (mounted) {
-          setShowFallback(true)
+          return
         }
+      } catch (err) {
+        // Cache check failed, continue to fetch
+      }
+      
+      // Not in cache - if offline, show fallback
+      if (!isOnline) {
+        if (mounted) setShowFallback(true)
+        return
+      }
+      
+      // Online and not cached - fetch from API and cache it
+      try {
+        const token = localStorage.getItem('token')
+        const response = await fetch(`${API_BASE}/products/${itemId}/image`, {
+          headers: token ? { 'Authorization': `Bearer ${token}` } : {}
+        })
+        
+        if (response.ok) {
+          const blob = await response.blob()
+          if (blob.size > 100 && blob.type.startsWith('image/')) {
+            // Save to IndexedDB for future use
+            await offlineStore.saveImage(itemId, blob)
+            // Create object URL for display
+            if (mounted) {
+              setImageSrc(URL.createObjectURL(blob))
+            }
+            return
+          }
+        }
+        // No image or failed
+        if (mounted) setShowFallback(true)
       } catch (err) {
         if (mounted) setShowFallback(true)
       }
@@ -455,22 +479,6 @@ function OfflineImage({ itemId, alt, className, fallbackIcon = '📦' }) {
     
     return () => { mounted = false }
   }, [itemId, isOnline])
-  
-  const handleError = async () => {
-    // If online image fails, try cache
-    if (isOnline) {
-      try {
-        const cachedImage = await offlineStore.getImage(itemId)
-        if (cachedImage) {
-          setImageSrc(cachedImage)
-          return
-        }
-      } catch (err) {
-        // Fall through to fallback
-      }
-    }
-    setShowFallback(true)
-  }
   
   if (showFallback) {
     return (
@@ -493,7 +501,7 @@ function OfflineImage({ itemId, alt, className, fallbackIcon = '📦' }) {
       src={imageSrc}
       alt={alt}
       className={className}
-      onError={handleError}
+      onError={() => setShowFallback(true)}
     />
   )
 }
@@ -514,6 +522,7 @@ function ProductDetailModal({ product, onClose, onAddToCart }) {
           <div className="aspect-square bg-gray-100">
             <OfflineImage
               itemId={product.item_id}
+              imageUrl={product.image_url}
               alt={product.name}
               className="w-full h-full object-contain"
               fallbackIcon="📦"
@@ -1495,6 +1504,7 @@ function CartTab({ onOrderSubmitted }) {
                   <div className="w-16 h-16 rounded-lg flex-shrink-0 overflow-hidden">
                     <OfflineImage
                       itemId={item.item_id}
+                      imageUrl={item.image_url}
                       alt={item.name}
                       className="w-full h-full object-cover"
                       fallbackIcon="📦"
@@ -2414,15 +2424,16 @@ function SettingsTab() {
       const products = await offlineStore.getProducts()
       if (products.length === 0) {
         addToast('Sync products first', 'error')
+        setIsDownloadingImages(false)
         return
       }
       
-      // Download images
+      // Download images (uses API but saves to IndexedDB for future offline use)
       const count = await syncService.syncImages(products, (progress) => {
         setSyncProgress(progress.message || '')
       })
       setSyncProgress('')
-      addToast(`Downloaded ${count} images`, 'success')
+      addToast(`Downloaded ${count} images for offline use`, 'success')
     } catch (err) {
       setSyncProgress('')
       addToast('Image download failed: ' + err.message, 'error')
@@ -2502,7 +2513,7 @@ function SettingsTab() {
           {isSyncing ? syncProgress || 'Syncing...' : '📲 Sync Products & Customers'}
         </button>
         <p className="text-xs text-gray-500 mt-2 text-center">
-          Quick sync - downloads product data and customers
+          Downloads product data and customers for offline browsing
         </p>
         
         <button
@@ -2513,7 +2524,8 @@ function SettingsTab() {
           {isDownloadingImages ? syncProgress || 'Downloading...' : '🖼️ Download Images for Offline'}
         </button>
         <p className="text-xs text-gray-500 mt-2 text-center">
-          Optional - takes longer, only needed for fully offline use
+          Pre-downloads images so they don't load each time you view products.
+          Only downloads images not already cached.
         </p>
       </div>
       

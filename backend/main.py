@@ -542,7 +542,7 @@ async def sync_products(
         # Sort by SKU alphabetically
         all_items.sort(key=lambda x: (x.get("sku") or "").upper())
         
-        # Transform for frontend
+        # Transform for frontend - include image_url for direct CDN access
         products = []
         for item in all_items:
             sku = item.get("sku", "")
@@ -556,7 +556,8 @@ async def sync_products(
                 "stock_on_hand": item.get("stock_on_hand", 0),
                 "brand": item.get("brand") or item.get("manufacturer") or "",
                 "unit": item.get("unit", "pcs"),
-                "pack_qty": _pack_quantities.get(sku)
+                "pack_qty": _pack_quantities.get(sku),
+                "image_url": item.get("image_url") or ""  # Direct Zoho CDN URL - no API call needed!
             })
         
         print(f"SYNC: Returning {len(products)} products for {agent.agent_name}")

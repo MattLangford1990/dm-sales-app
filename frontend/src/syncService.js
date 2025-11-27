@@ -105,17 +105,17 @@ export async function syncCustomers(onProgress) {
   }
 }
 
-// Pre-cache product images - downloads in parallel batches for speed
+// Pre-cache product images for offline use
+// Downloads via our API (which caches on server) and saves to IndexedDB
 export async function syncImages(products, onProgress) {
   console.log('SYNC: Starting image sync...')
   
   const token = localStorage.getItem('token')
-  
   let cached = 0
   let skipped = 0
   let failed = 0
   const total = products.length
-  const BATCH_SIZE = 10 // Download 10 images at a time
+  const BATCH_SIZE = 5 // Smaller batches to avoid overwhelming the API
   
   for (let i = 0; i < products.length; i += BATCH_SIZE) {
     const batch = products.slice(i, i + BATCH_SIZE)
@@ -131,24 +131,26 @@ export async function syncImages(products, onProgress) {
     const results = await Promise.allSettled(
       batch.map(async (product) => {
         try {
-          // Check if we already have this image
+          // Check if we already have this image cached
           const existing = await offlineStore.getImage(product.item_id)
           if (existing) {
             return { status: 'skipped' }
           }
           
+          // Download from our API (which handles Zoho auth)
           const response = await fetch(`${API_BASE}/products/${product.item_id}/image`, {
             headers: token ? { 'Authorization': `Bearer ${token}` } : {}
           })
+          
           if (response.ok) {
             const blob = await response.blob()
-            // Only save if it's actually an image (not an error page)
+            // Only save if it's actually an image
             if (blob.type.startsWith('image/') && blob.size > 100) {
               await offlineStore.saveImage(product.item_id, blob)
               return { status: 'cached' }
             }
           }
-          return { status: 'failed' }
+          return { status: 'noimage' }
         } catch (err) {
           return { status: 'failed' }
         }
@@ -160,13 +162,13 @@ export async function syncImages(products, onProgress) {
       if (r.status === 'fulfilled') {
         if (r.value.status === 'cached') cached++
         else if (r.value.status === 'skipped') skipped++
-        else failed++
+        else failed++ // includes 'noimage' and 'failed'
       } else {
         failed++
       }
     })
     
-    // Small delay between batches to not overwhelm server
+    // Small delay between batches to be nice to the server
     await new Promise(resolve => setTimeout(resolve, 100))
   }
   
@@ -174,7 +176,7 @@ export async function syncImages(products, onProgress) {
   await offlineStore.setSyncMeta('lastImageSync', new Date().toISOString())
   await offlineStore.setSyncMeta('imageCount', totalCached)
   
-  console.log(`SYNC: Images - ${cached} new, ${skipped} already cached, ${failed} failed`)
+  console.log(`SYNC: Images - ${cached} new, ${skipped} already cached, ${failed} no image/failed`)
   return totalCached
 }
 
