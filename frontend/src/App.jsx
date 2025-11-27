@@ -422,56 +422,101 @@ function LoadingSpinner() {
   )
 }
 
-// Offline-aware image component - ALWAYS checks IndexedDB cache first to avoid API calls
+// Offline-aware image component - checks IndexedDB cache first, then API
 function OfflineImage({ itemId, imageUrl, alt, className, fallbackIcon = '📦' }) {
   const [imageSrc, setImageSrc] = useState(null)
   const [showFallback, setShowFallback] = useState(false)
-  const { isOnline } = useOffline()
+  const [loading, setLoading] = useState(true)
+  const offlineContext = useOffline()
+  const isOnline = offlineContext?.isOnline ?? navigator.onLine
   
   useEffect(() => {
+    if (!itemId) {
+      setShowFallback(true)
+      setLoading(false)
+      return
+    }
+    
     let mounted = true
+    setLoading(true)
+    setShowFallback(false)
+    setImageSrc(null)
     
     const loadImage = async () => {
-      // ALWAYS check IndexedDB cache first (avoids API calls for cached images)
+      // 1. Check IndexedDB cache first
       try {
         const cachedImage = await offlineStore.getImage(itemId)
         if (mounted && cachedImage) {
+          console.log(`IMAGE: Cache hit for ${itemId}`)
           setImageSrc(cachedImage)
+          setLoading(false)
           return
         }
       } catch (err) {
-        // Cache check failed, continue to fetch
+        console.log(`IMAGE: Cache check error for ${itemId}:`, err)
       }
       
-      // Not in cache - if offline, show fallback
+      // 2. Not in cache - if offline, show fallback
       if (!isOnline) {
-        if (mounted) setShowFallback(true)
+        console.log(`IMAGE: Offline, no cache for ${itemId}`)
+        if (mounted) {
+          setShowFallback(true)
+          setLoading(false)
+        }
         return
       }
       
-      // Online and not cached - fetch from API and cache it
+      // 3. Online and not cached - fetch from API
+      console.log(`IMAGE: Loading from API for ${itemId}`)
+      const token = localStorage.getItem('token')
+      const apiUrl = `${API_BASE}/products/${itemId}/image`
+      
       try {
-        const token = localStorage.getItem('token')
-        const response = await fetch(`${API_BASE}/products/${itemId}/image`, {
+        const response = await fetch(apiUrl, {
           headers: token ? { 'Authorization': `Bearer ${token}` } : {}
         })
         
         if (response.ok) {
           const blob = await response.blob()
-          if (blob.size > 100 && blob.type.startsWith('image/')) {
+          console.log(`IMAGE: Got blob for ${itemId}, size: ${blob.size}, type: ${blob.type}`)
+          if (blob.size > 100) {
             // Save to IndexedDB for future use
-            await offlineStore.saveImage(itemId, blob)
-            // Create object URL for display
-            if (mounted) {
-              setImageSrc(URL.createObjectURL(blob))
+            try {
+              await offlineStore.saveImage(itemId, blob)
+              console.log(`IMAGE: Saved to cache for ${itemId}`)
+            } catch (cacheErr) {
+              console.log(`IMAGE: Failed to cache ${itemId}:`, cacheErr)
             }
+            // Use base64 for display
+            const reader = new FileReader()
+            reader.onloadend = () => {
+              if (mounted) {
+                setImageSrc(reader.result)
+                setLoading(false)
+              }
+            }
+            reader.onerror = () => {
+              console.log(`IMAGE: FileReader error for ${itemId}`)
+              if (mounted) {
+                setShowFallback(true)
+                setLoading(false)
+              }
+            }
+            reader.readAsDataURL(blob)
             return
           }
         }
-        // No image or failed
-        if (mounted) setShowFallback(true)
+        console.log(`IMAGE: No image or bad response for ${itemId}, status: ${response.status}`)
+        if (mounted) {
+          setShowFallback(true)
+          setLoading(false)
+        }
       } catch (err) {
-        if (mounted) setShowFallback(true)
+        console.log(`IMAGE: Fetch error for ${itemId}:`, err)
+        if (mounted) {
+          setShowFallback(true)
+          setLoading(false)
+        }
       }
     }
     
@@ -480,18 +525,18 @@ function OfflineImage({ itemId, imageUrl, alt, className, fallbackIcon = '📦' 
     return () => { mounted = false }
   }, [itemId, isOnline])
   
-  if (showFallback) {
+  if (loading) {
     return (
       <div className={`flex items-center justify-center bg-gray-100 ${className}`}>
-        <span className="text-4xl">{fallbackIcon}</span>
+        <div className="w-6 h-6 border-2 border-gray-300 border-t-gray-600 rounded-full animate-spin"></div>
       </div>
     )
   }
   
-  if (!imageSrc) {
+  if (showFallback || !imageSrc) {
     return (
       <div className={`flex items-center justify-center bg-gray-100 ${className}`}>
-        <div className="w-6 h-6 border-2 border-gray-300 border-t-gray-600 rounded-full animate-spin"></div>
+        <span className="text-4xl">{fallbackIcon}</span>
       </div>
     )
   }
@@ -501,7 +546,10 @@ function OfflineImage({ itemId, imageUrl, alt, className, fallbackIcon = '📦' 
       src={imageSrc}
       alt={alt}
       className={className}
-      onError={() => setShowFallback(true)}
+      onError={() => {
+        console.log(`IMAGE: img onError for ${itemId}`)
+        setShowFallback(true)
+      }}
     />
   )
 }
