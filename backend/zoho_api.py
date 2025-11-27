@@ -70,9 +70,11 @@ def invalidate_items_cache():
     _all_items_cache["cached_at"] = None
     print("CACHE: Items cache invalidated")
 
-# Image cache - DISABLED to save memory
-# Browser caching (24hr) + frontend IndexedDB handles image caching instead
-# We just cache "no image" markers to avoid repeated lookups
+# Image cache - LIMITED size to prevent memory issues
+# Uses simple LRU-style eviction
+_image_cache = {}  # {item_id: bytes}
+_image_cache_order = []  # Track order for LRU eviction
+IMAGE_CACHE_MAX_COUNT = 100  # Max 100 images (~20MB worst case)
 _no_image_cache = set()  # Set of item_ids with no image
 
 # Document ID cache - stores {item_id: image_document_id}
@@ -80,7 +82,7 @@ _no_image_cache = set()  # Set of item_ids with no image
 _doc_id_cache = {}
 
 # Rate limiting for image requests
-_image_request_semaphore = asyncio.Semaphore(2)  # Max 2 concurrent image requests
+_image_request_semaphore = asyncio.Semaphore(5)  # Max 5 concurrent image requests
 
 
 async def get_access_token() -> str:
@@ -254,7 +256,16 @@ async def get_sales_order(salesorder_id: str) -> dict:
 # ============ Images ============
 
 async def get_item_image(item_id: str) -> bytes:
-    """Get item image as bytes - no memory caching, relies on browser/frontend caching"""
+    """Get item image as bytes - with limited LRU cache"""
+    global _image_cache, _image_cache_order
+    
+    # Check memory cache first
+    if item_id in _image_cache:
+        # Move to end of order list (most recently used)
+        if item_id in _image_cache_order:
+            _image_cache_order.remove(item_id)
+        _image_cache_order.append(item_id)
+        return _image_cache[item_id]
     
     # Check if we already know this item has no image
     if item_id in _no_image_cache:
@@ -273,6 +284,10 @@ async def get_item_image(item_id: str) -> bytes:
     
     # Use semaphore to limit concurrent requests
     async with _image_request_semaphore:
+        # Double-check cache after acquiring semaphore
+        if item_id in _image_cache:
+            return _image_cache[item_id]
+        
         token = await get_access_token()
         headers = {"Authorization": f"Zoho-oauthtoken {token}"}
         params = {"organization_id": settings.zoho_org_id}
@@ -284,7 +299,19 @@ async def get_item_image(item_id: str) -> bytes:
             doc_resp = await client.get(doc_url, headers=headers, params=params)
             
             if doc_resp.status_code == 200 and len(doc_resp.content) > 100:
-                return doc_resp.content
+                image_data = doc_resp.content
+                
+                # Add to cache with LRU eviction
+                if len(_image_cache) >= IMAGE_CACHE_MAX_COUNT:
+                    # Remove oldest (first) item
+                    if _image_cache_order:
+                        oldest = _image_cache_order.pop(0)
+                        _image_cache.pop(oldest, None)
+                
+                _image_cache[item_id] = image_data
+                _image_cache_order.append(item_id)
+                
+                return image_data
             else:
                 # Mark as no-image to avoid future lookups
                 _no_image_cache.add(item_id)

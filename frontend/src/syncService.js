@@ -178,9 +178,9 @@ export async function syncImages(products, onProgress) {
   return totalCached
 }
 
-// Full sync - products, customers, AND images (images now included by default)
+// Full sync - products and customers (images are separate to save API calls)
 export async function fullSync(options = {}, onProgress) {
-  const { includeImages = true } = options // Images included by default now
+  const { includeImages = false } = options // Images OFF by default - use syncImages separately
   
   const results = {
     products: 0,
@@ -196,7 +196,7 @@ export async function fullSync(options = {}, onProgress) {
     // Sync customers
     results.customers = await syncCustomers(onProgress)
     
-    // Sync images (now included by default)
+    // Only sync images if explicitly requested
     if (includeImages && products.length > 0) {
       results.images = await syncImages(products, onProgress)
     }

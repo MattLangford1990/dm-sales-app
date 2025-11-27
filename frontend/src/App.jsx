@@ -2382,6 +2382,7 @@ function SettingsTab() {
   const { isOnline, syncStatus, isSyncing, doSync, submitPendingOrders } = useOffline()
   const { addToast } = useToast()
   const [syncProgress, setSyncProgress] = useState('')
+  const [isDownloadingImages, setIsDownloadingImages] = useState(false)
   
   const handleSync = async () => {
     if (!isOnline) {
@@ -2398,6 +2399,35 @@ function SettingsTab() {
     } catch (err) {
       setSyncProgress('')
       addToast('Sync failed: ' + err.message, 'error')
+    }
+  }
+  
+  const handleDownloadImages = async () => {
+    if (!isOnline) {
+      addToast('Cannot download images while offline', 'error')
+      return
+    }
+    
+    setIsDownloadingImages(true)
+    try {
+      // Get products from cache
+      const products = await offlineStore.getProducts()
+      if (products.length === 0) {
+        addToast('Sync products first', 'error')
+        return
+      }
+      
+      // Download images
+      const count = await syncService.syncImages(products, (progress) => {
+        setSyncProgress(progress.message || '')
+      })
+      setSyncProgress('')
+      addToast(`Downloaded ${count} images`, 'success')
+    } catch (err) {
+      setSyncProgress('')
+      addToast('Image download failed: ' + err.message, 'error')
+    } finally {
+      setIsDownloadingImages(false)
     }
   }
   
@@ -2466,13 +2496,24 @@ function SettingsTab() {
         
         <button
           onClick={handleSync}
-          disabled={isSyncing || !isOnline}
+          disabled={isSyncing || isDownloadingImages || !isOnline}
           className="w-full py-3 bg-blue-600 text-white rounded-lg font-semibold disabled:bg-gray-400"
         >
-          {isSyncing ? syncProgress || 'Syncing...' : '📲 Download Data for Offline Use'}
+          {isSyncing ? syncProgress || 'Syncing...' : '📲 Sync Products & Customers'}
         </button>
         <p className="text-xs text-gray-500 mt-2 text-center">
-          Downloads products, images & customers for offline access
+          Quick sync - downloads product data and customers
+        </p>
+        
+        <button
+          onClick={handleDownloadImages}
+          disabled={isSyncing || isDownloadingImages || !isOnline}
+          className="w-full mt-3 py-3 bg-purple-600 text-white rounded-lg font-semibold disabled:bg-gray-400"
+        >
+          {isDownloadingImages ? syncProgress || 'Downloading...' : '🖼️ Download Images for Offline'}
+        </button>
+        <p className="text-xs text-gray-500 mt-2 text-center">
+          Optional - takes longer, only needed for fully offline use
         </p>
       </div>
       
