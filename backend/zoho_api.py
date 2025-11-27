@@ -267,23 +267,32 @@ async def get_item_image(item_id: str) -> bytes:
     # Check if we have the document ID cached
     doc_id = _doc_id_cache.get(item_id)
     
-    # If not cached, fetch items list to find it
+    # If not cached, use the all-items cache (which has ALL items)
     if not doc_id:
-        print(f"IMAGE: Doc ID not cached, fetching items list for {item_id}")
-        # Search through items to find this one and cache its doc_id
-        result = await get_items(page=1, per_page=200)
-        doc_id = _doc_id_cache.get(item_id)
+        print(f"IMAGE: Doc ID not cached, checking all-items cache for {item_id}")
+        all_items = await get_all_items_cached()
         
-        # If still not found, try a few more pages
-        if not doc_id:
-            page_info = result.get("page_context", {})
-            total_pages = page_info.get("total_pages", 1)
-            for page in range(2, min(total_pages + 1, 6)):  # Check up to 5 pages
-                if item_id in _doc_id_cache:
-                    doc_id = _doc_id_cache[item_id]
-                    break
-                await get_items(page=page, per_page=200)
-            doc_id = _doc_id_cache.get(item_id)
+        # Find this item in the cache
+        for item in all_items:
+            if item.get("item_id") == item_id:
+                doc_id = item.get("image_document_id")
+                if doc_id:
+                    _doc_id_cache[item_id] = doc_id
+                    print(f"IMAGE: Found doc_id {doc_id} for {item_id} in all-items cache")
+                break
+    
+    # If still no doc_id, try fetching the single item directly
+    if not doc_id:
+        print(f"IMAGE: Fetching single item {item_id} to get doc_id")
+        try:
+            item_response = await get_item(item_id)
+            item = item_response.get("item", {})
+            doc_id = item.get("image_document_id")
+            if doc_id:
+                _doc_id_cache[item_id] = doc_id
+                print(f"IMAGE: Found doc_id {doc_id} from single item fetch")
+        except Exception as e:
+            print(f"IMAGE: Error fetching single item: {e}")
     
     if not doc_id:
         print(f"IMAGE: No document ID found for {item_id}")
