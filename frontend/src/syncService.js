@@ -109,6 +109,8 @@ export async function syncCustomers(onProgress) {
 export async function syncImages(products, onProgress) {
   console.log('SYNC: Starting image sync...')
   
+  const token = localStorage.getItem('token')
+  
   let cached = 0
   let skipped = 0
   let failed = 0
@@ -135,7 +137,9 @@ export async function syncImages(products, onProgress) {
             return { status: 'skipped' }
           }
           
-          const response = await fetch(`/api/products/${product.item_id}/image`)
+          const response = await fetch(`${API_BASE}/products/${product.item_id}/image`, {
+            headers: token ? { 'Authorization': `Bearer ${token}` } : {}
+          })
           if (response.ok) {
             const blob = await response.blob()
             // Only save if it's actually an image (not an error page)

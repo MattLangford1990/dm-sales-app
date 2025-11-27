@@ -616,7 +616,8 @@ function LoginPage() {
         )}
         
         <div className="text-center mb-8">
-          <h1 className="text-3xl font-bold text-gray-800">DM Sales</h1>
+          <img src="/logo.JPG" alt="DMB Logo" className="h-20 mx-auto mb-4 rounded-lg" />
+          <h1 className="text-3xl font-bold text-gray-800">DMB Sales</h1>
           <p className="text-gray-500 mt-2">Sign in to continue</p>
         </div>
         
@@ -688,9 +689,12 @@ function HomePage({ onNavigate }) {
   return (
     <div className="flex-1 bg-gradient-to-br from-plum-500 to-plum-700 flex flex-col safe-area-top">
       <div className="p-6 flex justify-between items-center">
-        <div className="text-white">
-          <h1 className="text-2xl font-bold">DM Sales</h1>
-          <p className="text-plum-400">Welcome, {agent?.name}</p>
+        <div className="flex items-center gap-3">
+          <img src="/logo.JPG" alt="DMB Logo" className="h-12 rounded-lg" />
+          <div className="text-white">
+            <h1 className="text-2xl font-bold">DMB Sales</h1>
+            <p className="text-plum-200">Welcome, {agent?.name}</p>
+          </div>
         </div>
         <button
           onClick={logout}
@@ -2512,7 +2516,7 @@ function SettingsTab() {
       
       {/* App Info */}
       <div className="text-center text-xs text-gray-400 py-4">
-        DM Sales App v1.0
+        DMB Sales App v1.0
       </div>
     </div>
   )
