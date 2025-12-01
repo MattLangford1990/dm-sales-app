@@ -91,6 +91,8 @@ class OrderCreate(BaseModel):
     line_items: List[OrderLineItem]
     notes: Optional[str] = None
     reference_number: Optional[str] = None
+    delivery_date: Optional[str] = None
+    delivery_charge: Optional[float] = 0
 
 
 # ============ Auth Helpers ============
@@ -963,12 +965,24 @@ async def create_order(
                 line_item["discount"] = item.discount_percent
             line_items.append(line_item)
         
+        # Build notes with delivery info
+        notes_parts = [f"Order placed by {agent.agent_name}"]
+        if order.delivery_date:
+            notes_parts.append(f"Required delivery date: {order.delivery_date}")
+        if order.notes:
+            notes_parts.append(order.notes)
+        
         order_data = {
             "customer_id": order.customer_id,
             "date": datetime.now().strftime("%Y-%m-%d"),
             "line_items": line_items,
-            "notes": f"Order placed by {agent.agent_name}\n{order.notes or ''}".strip()
+            "notes": "\n".join(notes_parts)
         }
+        
+        # Add delivery charge as adjustment if applicable
+        if order.delivery_charge and order.delivery_charge > 0:
+            order_data["adjustment"] = order.delivery_charge
+            order_data["adjustment_description"] = "Delivery Charge"
         
         if order.reference_number:
             order_data["reference_number"] = order.reference_number
@@ -1089,13 +1103,14 @@ class ExportItem(BaseModel):
 class ExportRequest(BaseModel):
     items: List[ExportItem]
     customer_name: Optional[str] = None
+    include_images: bool = False  # Default OFF to save API calls
 
 @app.post("/api/export/quote")
 async def export_quote(
     request: ExportRequest,
     agent: TokenData = Depends(get_current_agent)
 ):
-    """Export cart as Excel quote with images"""
+    """Export cart as Excel quote - images optional to save API calls"""
     try:
         from openpyxl import Workbook
         from openpyxl.drawing.image import Image as XLImage
@@ -1118,18 +1133,29 @@ async def export_quote(
             bottom=Side(style='thin')
         )
         
-        # Set column widths
-        ws.column_dimensions['A'].width = 15  # Image
-        ws.column_dimensions['B'].width = 40  # Description
-        ws.column_dimensions['C'].width = 15  # SKU
-        ws.column_dimensions['D'].width = 18  # EAN
-        ws.column_dimensions['E'].width = 10  # Qty
-        ws.column_dimensions['F'].width = 12  # Price
-        ws.column_dimensions['G'].width = 12  # Total
+        # Set column widths - adjust if no images
+        if request.include_images:
+            ws.column_dimensions['A'].width = 15  # Image
+            ws.column_dimensions['B'].width = 40  # Description
+            ws.column_dimensions['C'].width = 15  # SKU
+            ws.column_dimensions['D'].width = 18  # EAN
+            ws.column_dimensions['E'].width = 10  # Qty
+            ws.column_dimensions['F'].width = 12  # Price
+            ws.column_dimensions['G'].width = 12  # Total
+            headers = ['Image', 'Description', 'SKU', 'EAN', 'Qty', 'Unit Price', 'Total']
+        else:
+            ws.column_dimensions['A'].width = 40  # Description
+            ws.column_dimensions['B'].width = 15  # SKU
+            ws.column_dimensions['C'].width = 18  # EAN
+            ws.column_dimensions['D'].width = 10  # Qty
+            ws.column_dimensions['E'].width = 12  # Price
+            ws.column_dimensions['F'].width = 12  # Total
+            headers = ['Description', 'SKU', 'EAN', 'Qty', 'Unit Price', 'Total']
         
         # Add title
         if request.customer_name:
-            ws.merge_cells('A1:G1')
+            end_col = 'G' if request.include_images else 'F'
+            ws.merge_cells(f'A1:{end_col}1')
             ws['A1'] = f"Quote for {request.customer_name}"
             ws['A1'].font = Font(bold=True, size=14)
             ws['A1'].alignment = Alignment(horizontal="center")
@@ -1138,7 +1164,6 @@ async def export_quote(
             start_row = 1
         
         # Add headers
-        headers = ['Image', 'Description', 'SKU', 'EAN', 'Qty', 'Unit Price', 'Total']
         for col, header in enumerate(headers, 1):
             cell = ws.cell(row=start_row, column=col, value=header)
             cell.font = header_font
@@ -1153,58 +1178,67 @@ async def export_quote(
         grand_total = 0
         
         for item in request.items:
-            # Set row height for image
-            ws.row_dimensions[current_row].height = 75
-            
-            # Try to fetch and add image
-            try:
-                image_data = await zoho_api.get_item_image(item.item_id)
-                if image_data:
-                    # Convert to PIL Image and resize
-                    img = Image.open(io.BytesIO(image_data))
-                    img.thumbnail((90, 90), Image.Resampling.LANCZOS)
-                    
-                    # Save to bytes
-                    img_bytes = io.BytesIO()
-                    img.save(img_bytes, format='PNG')
-                    img_bytes.seek(0)
-                    
-                    # Add to Excel
-                    xl_img = XLImage(img_bytes)
-                    xl_img.width = 90
-                    xl_img.height = 90
-                    ws.add_image(xl_img, f'A{current_row}')
-            except Exception as img_err:
-                print(f"IMAGE EXPORT ERROR: {img_err}")
-            
-            # Add item details
             line_total = item.rate * item.quantity
             grand_total += line_total
             
-            ws.cell(row=current_row, column=2, value=item.name).border = thin_border
-            ws.cell(row=current_row, column=3, value=item.sku).border = thin_border
-            ws.cell(row=current_row, column=4, value=item.ean or '').border = thin_border
-            ws.cell(row=current_row, column=5, value=item.quantity).border = thin_border
-            ws.cell(row=current_row, column=5).alignment = Alignment(horizontal="center")
-            
-            price_cell = ws.cell(row=current_row, column=6, value=item.rate)
-            price_cell.number_format = '£#,##0.00'
-            price_cell.border = thin_border
-            
-            total_cell = ws.cell(row=current_row, column=7, value=line_total)
-            total_cell.number_format = '£#,##0.00'
-            total_cell.border = thin_border
-            
-            # Center align
-            for col in [3, 4]:
-                ws.cell(row=current_row, column=col).alignment = Alignment(horizontal="center")
+            if request.include_images:
+                # Set row height for image
+                ws.row_dimensions[current_row].height = 75
+                
+                # Try to fetch and add image
+                try:
+                    image_data = await zoho_api.get_item_image(item.item_id)
+                    if image_data:
+                        img = Image.open(io.BytesIO(image_data))
+                        img.thumbnail((90, 90), Image.Resampling.LANCZOS)
+                        img_bytes = io.BytesIO()
+                        img.save(img_bytes, format='PNG')
+                        img_bytes.seek(0)
+                        xl_img = XLImage(img_bytes)
+                        xl_img.width = 90
+                        xl_img.height = 90
+                        ws.add_image(xl_img, f'A{current_row}')
+                except Exception as img_err:
+                    print(f"IMAGE EXPORT ERROR: {img_err}")
+                
+                # Add item details with image column offset
+                ws.cell(row=current_row, column=2, value=item.name).border = thin_border
+                ws.cell(row=current_row, column=3, value=item.sku).border = thin_border
+                ws.cell(row=current_row, column=4, value=item.ean or '').border = thin_border
+                ws.cell(row=current_row, column=5, value=item.quantity).border = thin_border
+                ws.cell(row=current_row, column=5).alignment = Alignment(horizontal="center")
+                price_cell = ws.cell(row=current_row, column=6, value=item.rate)
+                price_cell.number_format = '£#,##0.00'
+                price_cell.border = thin_border
+                total_cell = ws.cell(row=current_row, column=7, value=line_total)
+                total_cell.number_format = '£#,##0.00'
+                total_cell.border = thin_border
+                for col in [3, 4]:
+                    ws.cell(row=current_row, column=col).alignment = Alignment(horizontal="center")
+            else:
+                # No images - simpler layout
+                ws.cell(row=current_row, column=1, value=item.name).border = thin_border
+                ws.cell(row=current_row, column=2, value=item.sku).border = thin_border
+                ws.cell(row=current_row, column=3, value=item.ean or '').border = thin_border
+                ws.cell(row=current_row, column=4, value=item.quantity).border = thin_border
+                ws.cell(row=current_row, column=4).alignment = Alignment(horizontal="center")
+                price_cell = ws.cell(row=current_row, column=5, value=item.rate)
+                price_cell.number_format = '£#,##0.00'
+                price_cell.border = thin_border
+                total_cell = ws.cell(row=current_row, column=6, value=line_total)
+                total_cell.number_format = '£#,##0.00'
+                total_cell.border = thin_border
+                for col in [2, 3]:
+                    ws.cell(row=current_row, column=col).alignment = Alignment(horizontal="center")
             
             current_row += 1
         
         # Add grand total
         current_row += 1
-        ws.cell(row=current_row, column=6, value="TOTAL:").font = Font(bold=True)
-        total_cell = ws.cell(row=current_row, column=7, value=grand_total)
+        total_col = 6 if request.include_images else 5
+        value_col = 7 if request.include_images else 6
+        ws.cell(row=current_row, column=total_col, value="TOTAL:").font = Font(bold=True)
+        total_cell = ws.cell(row=current_row, column=value_col, value=grand_total)
         total_cell.font = Font(bold=True)
         total_cell.number_format = '£#,##0.00'
         
@@ -1282,9 +1316,22 @@ async def debug_pack_qty(sku: str):
 
 # Serve frontend static files in production
 static_dir = os.path.join(os.path.dirname(__file__), "static")
+print(f"STARTUP: Looking for static dir at: {static_dir}")
+print(f"STARTUP: Static dir exists: {os.path.exists(static_dir)}")
+
 if os.path.exists(static_dir):
-    # Mount static assets (js, css, images)
-    app.mount("/assets", StaticFiles(directory=os.path.join(static_dir, "assets")), name="assets")
+    print(f"STARTUP: Static dir contents: {os.listdir(static_dir)}")
+    assets_dir = os.path.join(static_dir, "assets")
+    
+    # Mount static assets (js, css, images) if they exist
+    if os.path.exists(assets_dir):
+        app.mount("/assets", StaticFiles(directory=assets_dir), name="assets")
+        print(f"STARTUP: Mounted /assets from {assets_dir}")
+    
+    # Explicit root route - serves index.html
+    @app.get("/")
+    async def serve_root():
+        return FileResponse(os.path.join(static_dir, "index.html"))
     
     # Serve index.html for all non-API routes (SPA routing)
     @app.get("/{full_path:path}")
@@ -1300,6 +1347,10 @@ if os.path.exists(static_dir):
         
         # Otherwise serve index.html for SPA routing
         return FileResponse(os.path.join(static_dir, "index.html"))
+else:
+    print("STARTUP: WARNING - No static directory found! Frontend will not be served.")
+    print(f"STARTUP: Current working directory: {os.getcwd()}")
+    print(f"STARTUP: __file__ directory: {os.path.dirname(__file__)}")
 
 
 if __name__ == "__main__":
