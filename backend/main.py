@@ -1294,89 +1294,116 @@ async def export_order_pdf(
         
         # Create PDF
         buffer = io.BytesIO()
-        doc = SimpleDocTemplate(buffer, pagesize=A4, topMargin=20*mm, bottomMargin=20*mm)
+        doc = SimpleDocTemplate(
+            buffer, 
+            pagesize=A4, 
+            topMargin=15*mm, 
+            bottomMargin=15*mm,
+            leftMargin=15*mm,
+            rightMargin=15*mm
+        )
+        
+        # Page width for calculating column widths (A4 = 210mm, minus margins)
+        page_width = 180*mm
         
         styles = getSampleStyleSheet()
         title_style = ParagraphStyle('Title', parent=styles['Heading1'], fontSize=18, alignment=TA_CENTER)
-        header_style = ParagraphStyle('Header', parent=styles['Normal'], fontSize=10, textColor=colors.grey)
+        subtitle_style = ParagraphStyle('Subtitle', parent=styles['Heading2'], fontSize=14, alignment=TA_CENTER)
         normal_style = styles['Normal']
+        
+        # Cell styles for proper text wrapping
+        cell_style = ParagraphStyle('CellStyle', parent=styles['Normal'], fontSize=8, leading=10)
+        cell_style_bold = ParagraphStyle('CellStyleBold', parent=cell_style, fontName='Helvetica-Bold')
         
         elements = []
         
         # Header
         elements.append(Paragraph("DM Brands Ltd", title_style))
-        elements.append(Paragraph("Sales Order Confirmation", ParagraphStyle('Subtitle', parent=styles['Heading2'], alignment=TA_CENTER)))
-        elements.append(Spacer(1, 10*mm))
+        elements.append(Paragraph("Sales Order Confirmation", subtitle_style))
+        elements.append(Spacer(1, 8*mm))
         
         # Order details
         order_info = [
-            ["Order Number:", order.get("salesorder_number", "")],
-            ["Date:", order.get("date", "")],
-            ["Customer:", order.get("customer_name", "")],
-            ["Status:", order.get("status", "").title()],
+            [Paragraph("<b>Order Number:</b>", normal_style), Paragraph(order.get("salesorder_number", ""), normal_style)],
+            [Paragraph("<b>Date:</b>", normal_style), Paragraph(order.get("date", ""), normal_style)],
+            [Paragraph("<b>Customer:</b>", normal_style), Paragraph(order.get("customer_name", ""), normal_style)],
+            [Paragraph("<b>Status:</b>", normal_style), Paragraph(order.get("status", "").title(), normal_style)],
         ]
         
-        info_table = Table(order_info, colWidths=[80, 300])
+        info_table = Table(order_info, colWidths=[80, page_width - 80])
         info_table.setStyle(TableStyle([
-            ('FONTNAME', (0, 0), (0, -1), 'Helvetica-Bold'),
-            ('FONTSIZE', (0, 0), (-1, -1), 10),
-            ('BOTTOMPADDING', (0, 0), (-1, -1), 6),
+            ('VALIGN', (0, 0), (-1, -1), 'TOP'),
+            ('BOTTOMPADDING', (0, 0), (-1, -1), 4),
         ]))
         elements.append(info_table)
-        elements.append(Spacer(1, 10*mm))
+        elements.append(Spacer(1, 8*mm))
         
-        # Line items table
+        # Line items table - column widths: SKU(50), Description(flex), Qty(30), Price(50), Total(50)
+        col_widths = [50, page_width - 50 - 30 - 50 - 50, 30, 50, 50]
+        
+        # Header row using Paragraphs
+        header_style_white = ParagraphStyle('HeaderWhite', parent=cell_style, textColor=colors.white, alignment=TA_CENTER)
+        table_data = [[
+            Paragraph("<b>SKU</b>", header_style_white),
+            Paragraph("<b>Description</b>", header_style_white),
+            Paragraph("<b>Qty</b>", header_style_white),
+            Paragraph("<b>Price</b>", header_style_white),
+            Paragraph("<b>Total</b>", header_style_white),
+        ]]
+        
+        # Line items with Paragraph objects for text wrapping
         line_items = order.get("line_items", [])
-        table_data = [["SKU", "Description", "Qty", "Unit Price", "Total"]]
-        
         for item in line_items:
             table_data.append([
-                item.get("sku", ""),
-                item.get("name", "")[:40],  # Truncate long names
-                str(item.get("quantity", 0)),
-                f"£{item.get('rate', 0):.2f}",
-                f"£{item.get('item_total', 0):.2f}"
+                Paragraph(item.get("sku", ""), cell_style),
+                Paragraph(item.get("name", ""), cell_style),  # Will wrap automatically
+                Paragraph(str(item.get("quantity", 0)), cell_style),
+                Paragraph(f"£{item.get('rate', 0):.2f}", cell_style),
+                Paragraph(f"£{item.get('item_total', 0):.2f}", cell_style),
             ])
         
         # Add totals
-        table_data.append(["", "", "", "Subtotal:", f"£{order.get('sub_total', 0):.2f}"])
+        table_data.append(["", "", "", Paragraph("<b>Subtotal:</b>", cell_style), Paragraph(f"£{order.get('sub_total', 0):.2f}", cell_style)])
         if order.get("adjustment"):
-            table_data.append(["", "", "", "Delivery:", f"£{order.get('adjustment', 0):.2f}"])
-        table_data.append(["", "", "", "Total (ex VAT):", f"£{order.get('total', 0):.2f}"])
+            table_data.append(["", "", "", Paragraph("<b>Delivery:</b>", cell_style), Paragraph(f"£{order.get('adjustment', 0):.2f}", cell_style)])
+        table_data.append(["", "", "", Paragraph("<b>Total (ex VAT):</b>", cell_style_bold), Paragraph(f"<b>£{order.get('total', 0):.2f}</b>", cell_style)])
         
-        items_table = Table(table_data, colWidths=[60, 200, 40, 70, 70])
+        items_table = Table(table_data, colWidths=col_widths)
+        
+        num_items = len(line_items)
         items_table.setStyle(TableStyle([
             # Header row
             ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#1e40af')),
-            ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
-            ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-            ('FONTSIZE', (0, 0), (-1, 0), 10),
-            ('BOTTOMPADDING', (0, 0), (-1, 0), 8),
-            ('TOPPADDING', (0, 0), (-1, 0), 8),
             
-            # Body rows
-            ('FONTSIZE', (0, 1), (-1, -1), 9),
-            ('BOTTOMPADDING', (0, 1), (-1, -1), 6),
-            ('TOPPADDING', (0, 1), (-1, -1), 6),
+            # All cells
+            ('VALIGN', (0, 0), (-1, -1), 'TOP'),
+            ('BOTTOMPADDING', (0, 0), (-1, -1), 6),
+            ('TOPPADDING', (0, 0), (-1, -1), 6),
+            ('LEFTPADDING', (0, 0), (-1, -1), 4),
+            ('RIGHTPADDING', (0, 0), (-1, -1), 4),
             
             # Alignment
-            ('ALIGN', (2, 0), (2, -1), 'CENTER'),  # Qty column
-            ('ALIGN', (3, 0), (-1, -1), 'RIGHT'),  # Price columns
+            ('ALIGN', (2, 0), (2, -1), 'CENTER'),  # Qty
+            ('ALIGN', (3, 0), (-1, -1), 'RIGHT'),  # Prices
             
-            # Grid
-            ('GRID', (0, 0), (-1, len(line_items)), 0.5, colors.grey),
+            # Grid for header + line items only
+            ('GRID', (0, 0), (-1, num_items), 0.5, colors.grey),
             
-            # Total rows styling
-            ('FONTNAME', (3, -1), (-1, -1), 'Helvetica-Bold'),
-            ('LINEABOVE', (3, -3 if order.get('adjustment') else -2), (-1, -3 if order.get('adjustment') else -2), 1, colors.grey),
+            # Alternating row colors
+            *[('BACKGROUND', (0, i), (-1, i), colors.HexColor('#f8fafc')) for i in range(2, num_items + 1, 2)],
+            
+            # Line above totals
+            ('LINEABOVE', (3, num_items + 1), (-1, num_items + 1), 1, colors.grey),
         ]))
         elements.append(items_table)
-        elements.append(Spacer(1, 10*mm))
+        elements.append(Spacer(1, 8*mm))
         
         # Notes
         if order.get("notes"):
+            notes_style = ParagraphStyle('NotesStyle', parent=normal_style, fontSize=9, leading=12)
             elements.append(Paragraph("<b>Notes:</b>", normal_style))
-            elements.append(Paragraph(order.get("notes", "").replace("\n", "<br/>"), normal_style))
+            elements.append(Spacer(1, 2*mm))
+            elements.append(Paragraph(order.get("notes", "").replace("\n", "<br/>"), notes_style))
         
         # Build PDF
         doc.build(elements)
