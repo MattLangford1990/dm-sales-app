@@ -1513,9 +1513,11 @@ function CartTab({ onOrderSubmitted }) {
       clearCart()
       setNotes('')
       setDeliveryDate('')
+      addToast(`Order ${result.salesorder_number} submitted successfully!`, 'success')
       onOrderSubmitted(result)
     } catch (err) {
       setError(err.message)
+      addToast('Failed to submit order: ' + err.message, 'error')
     } finally {
       setLoading(false)
     }
