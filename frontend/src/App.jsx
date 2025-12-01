@@ -2015,6 +2015,37 @@ function QuickOrderTab() {
 }
 
 function OrderSuccessModal({ order, onClose }) {
+  const [downloading, setDownloading] = useState(false)
+  
+  const handleDownloadPDF = async () => {
+    setDownloading(true)
+    try {
+      const token = localStorage.getItem('token')
+      const response = await fetch(`${API_BASE}/orders/${order.salesorder_id}/pdf`, {
+        headers: token ? { 'Authorization': `Bearer ${token}` } : {}
+      })
+      
+      if (!response.ok) {
+        throw new Error('Failed to generate PDF')
+      }
+      
+      const blob = await response.blob()
+      const url = window.URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `${order.salesorder_number}.pdf`
+      document.body.appendChild(a)
+      a.click()
+      window.URL.revokeObjectURL(url)
+      a.remove()
+    } catch (err) {
+      console.error('PDF download failed:', err)
+      alert('Failed to download PDF: ' + err.message)
+    } finally {
+      setDownloading(false)
+    }
+  }
+  
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-6">
       <div className="bg-white rounded-2xl p-8 max-w-md w-full text-center">
@@ -2022,12 +2053,21 @@ function OrderSuccessModal({ order, onClose }) {
         <h2 className="text-2xl font-bold text-gray-800 mb-2">Order Submitted!</h2>
         <p className="text-gray-600 mb-4">Order Number: <strong>{order.salesorder_number}</strong></p>
         <p className="text-2xl font-bold text-primary-600 mb-6">£{order.total?.toFixed(2)}</p>
-        <button
-          onClick={onClose}
-          className="w-full bg-primary-600 text-white py-4 rounded-xl font-semibold hover:bg-primary-700 transition"
-        >
-          Continue
-        </button>
+        <div className="space-y-3">
+          <button
+            onClick={handleDownloadPDF}
+            disabled={downloading}
+            className="w-full bg-blue-600 text-white py-4 rounded-xl font-semibold hover:bg-blue-700 disabled:opacity-50 transition flex items-center justify-center gap-2"
+          >
+            {downloading ? 'Generating PDF...' : '📄 Download Order PDF'}
+          </button>
+          <button
+            onClick={onClose}
+            className="w-full bg-primary-600 text-white py-4 rounded-xl font-semibold hover:bg-primary-700 transition"
+          >
+            Continue
+          </button>
+        </div>
       </div>
     </div>
   )

@@ -1263,6 +1263,143 @@ async def export_quote(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+# ============ Order PDF Export ============
+
+@app.get("/api/orders/{salesorder_id}/pdf")
+async def export_order_pdf(
+    salesorder_id: str,
+    agent: TokenData = Depends(get_current_agent)
+):
+    """Generate a PDF of a sales order"""
+    try:
+        from reportlab.lib import colors
+        from reportlab.lib.pagesizes import A4
+        from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+        from reportlab.lib.units import mm
+        from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer, Image as RLImage
+        from reportlab.lib.enums import TA_CENTER, TA_RIGHT
+        
+        # Fetch order from Zoho
+        response = await zoho_api.get_sales_order(salesorder_id)
+        order = response.get("salesorder", {})
+        
+        if not order:
+            raise HTTPException(status_code=404, detail="Order not found")
+        
+        # Check permission - admins can see all, others only their own
+        if not is_admin(agent.agent_id):
+            notes = order.get("notes") or ""
+            if f"Order placed by {agent.agent_name}" not in notes:
+                raise HTTPException(status_code=403, detail="You don't have permission to view this order")
+        
+        # Create PDF
+        buffer = io.BytesIO()
+        doc = SimpleDocTemplate(buffer, pagesize=A4, topMargin=20*mm, bottomMargin=20*mm)
+        
+        styles = getSampleStyleSheet()
+        title_style = ParagraphStyle('Title', parent=styles['Heading1'], fontSize=18, alignment=TA_CENTER)
+        header_style = ParagraphStyle('Header', parent=styles['Normal'], fontSize=10, textColor=colors.grey)
+        normal_style = styles['Normal']
+        
+        elements = []
+        
+        # Header
+        elements.append(Paragraph("DM Brands Ltd", title_style))
+        elements.append(Paragraph("Sales Order Confirmation", ParagraphStyle('Subtitle', parent=styles['Heading2'], alignment=TA_CENTER)))
+        elements.append(Spacer(1, 10*mm))
+        
+        # Order details
+        order_info = [
+            ["Order Number:", order.get("salesorder_number", "")],
+            ["Date:", order.get("date", "")],
+            ["Customer:", order.get("customer_name", "")],
+            ["Status:", order.get("status", "").title()],
+        ]
+        
+        info_table = Table(order_info, colWidths=[80, 300])
+        info_table.setStyle(TableStyle([
+            ('FONTNAME', (0, 0), (0, -1), 'Helvetica-Bold'),
+            ('FONTSIZE', (0, 0), (-1, -1), 10),
+            ('BOTTOMPADDING', (0, 0), (-1, -1), 6),
+        ]))
+        elements.append(info_table)
+        elements.append(Spacer(1, 10*mm))
+        
+        # Line items table
+        line_items = order.get("line_items", [])
+        table_data = [["SKU", "Description", "Qty", "Unit Price", "Total"]]
+        
+        for item in line_items:
+            table_data.append([
+                item.get("sku", ""),
+                item.get("name", "")[:40],  # Truncate long names
+                str(item.get("quantity", 0)),
+                f"£{item.get('rate', 0):.2f}",
+                f"£{item.get('item_total', 0):.2f}"
+            ])
+        
+        # Add totals
+        table_data.append(["", "", "", "Subtotal:", f"£{order.get('sub_total', 0):.2f}"])
+        if order.get("adjustment"):
+            table_data.append(["", "", "", "Delivery:", f"£{order.get('adjustment', 0):.2f}"])
+        table_data.append(["", "", "", "Total (ex VAT):", f"£{order.get('total', 0):.2f}"])
+        
+        items_table = Table(table_data, colWidths=[60, 200, 40, 70, 70])
+        items_table.setStyle(TableStyle([
+            # Header row
+            ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#1e40af')),
+            ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
+            ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+            ('FONTSIZE', (0, 0), (-1, 0), 10),
+            ('BOTTOMPADDING', (0, 0), (-1, 0), 8),
+            ('TOPPADDING', (0, 0), (-1, 0), 8),
+            
+            # Body rows
+            ('FONTSIZE', (0, 1), (-1, -1), 9),
+            ('BOTTOMPADDING', (0, 1), (-1, -1), 6),
+            ('TOPPADDING', (0, 1), (-1, -1), 6),
+            
+            # Alignment
+            ('ALIGN', (2, 0), (2, -1), 'CENTER'),  # Qty column
+            ('ALIGN', (3, 0), (-1, -1), 'RIGHT'),  # Price columns
+            
+            # Grid
+            ('GRID', (0, 0), (-1, len(line_items)), 0.5, colors.grey),
+            
+            # Total rows styling
+            ('FONTNAME', (3, -1), (-1, -1), 'Helvetica-Bold'),
+            ('LINEABOVE', (3, -3 if order.get('adjustment') else -2), (-1, -3 if order.get('adjustment') else -2), 1, colors.grey),
+        ]))
+        elements.append(items_table)
+        elements.append(Spacer(1, 10*mm))
+        
+        # Notes
+        if order.get("notes"):
+            elements.append(Paragraph("<b>Notes:</b>", normal_style))
+            elements.append(Paragraph(order.get("notes", "").replace("\n", "<br/>"), normal_style))
+        
+        # Build PDF
+        doc.build(elements)
+        buffer.seek(0)
+        
+        # Generate filename
+        filename = f"{order.get('salesorder_number', 'order')}.pdf"
+        
+        return StreamingResponse(
+            buffer,
+            media_type="application/pdf",
+            headers={"Content-Disposition": f"attachment; filename={filename}"}
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"PDF EXPORT ERROR: {e}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 # ============ Health Check ============
 
 @app.get("/api/debug/image-info")
