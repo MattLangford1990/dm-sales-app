@@ -2,7 +2,9 @@
 
 import * as offlineStore from './offlineStore'
 
-const API_BASE = '/api'
+// Use full URL for native app, relative path for web
+const isNativeApp = window.Capacitor?.isNativePlatform?.() || false
+const API_BASE = isNativeApp ? 'https://appdmbrands.com/api' : '/api'
 
 async function apiRequest(endpoint, options = {}) {
   const token = localStorage.getItem('token')
