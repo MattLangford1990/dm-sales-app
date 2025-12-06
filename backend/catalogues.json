@@ -1,0 +1,67 @@
+{
+  "catalogues": [
+    {
+      "id": "rader-2026",
+      "brand": "Räder",
+      "name": "Räder 2026 Catalogue",
+      "description": "Full product range for 2026",
+      "url": "",
+      "updated": "2025-12-01",
+      "size_mb": 15.2
+    },
+    {
+      "id": "gefu-2026",
+      "brand": "GEFU",
+      "name": "GEFU 2026 Catalogue",
+      "description": "Kitchen accessories collection",
+      "url": "",
+      "updated": "2025-11-15",
+      "size_mb": 8.5
+    },
+    {
+      "id": "myflame-2026",
+      "brand": "My Flame Lifestyle",
+      "name": "My Flame 2026 Catalogue",
+      "description": "Candles and lifestyle products",
+      "url": "",
+      "updated": "2025-10-20",
+      "size_mb": 5.3
+    },
+    {
+      "id": "remember-2026",
+      "brand": "Remember",
+      "name": "Remember 2026 Catalogue",
+      "description": "Colourful homeware collection",
+      "url": "",
+      "updated": "2025-11-01",
+      "size_mb": 12.1
+    },
+    {
+      "id": "relaxound-2026",
+      "brand": "Relaxound",
+      "name": "Relaxound 2026 Catalogue",
+      "description": "Sound boxes and relaxation",
+      "url": "",
+      "updated": "2025-09-15",
+      "size_mb": 3.2
+    },
+    {
+      "id": "ppd-2026",
+      "brand": "Paper Products Design",
+      "name": "PPD 2026 Catalogue",
+      "description": "Napkins, tableware and gifts",
+      "url": "",
+      "updated": "2025-12-01",
+      "size_mb": 22.5
+    },
+    {
+      "id": "ideas4seasons-2026",
+      "brand": "Ideas4Seasons",
+      "name": "Ideas4Seasons 2026 Catalogue",
+      "description": "Seasonal decorations and gifts",
+      "url": "",
+      "updated": "2025-11-20",
+      "size_mb": 18.7
+    }
+  ]
+}

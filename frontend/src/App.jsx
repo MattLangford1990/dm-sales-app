@@ -465,6 +465,7 @@ function OfflineImage({ itemId, imageUrl, alt, className, fallbackIcon = '📦' 
   
   useEffect(() => {
     if (!itemId) {
+      console.log('OfflineImage: No itemId provided')
       setLoading(false)
       setFailed(true)
       return
@@ -476,21 +477,26 @@ function OfflineImage({ itemId, imageUrl, alt, className, fallbackIcon = '📦' 
     setImageSrc(null)
     
     const loadImage = async () => {
+      console.log('OfflineImage: Loading image for', itemId, 'online:', navigator.onLine)
+      
       // 1. Check IndexedDB cache first (no API call)
       try {
         const cachedImage = await offlineStore.getImage(itemId)
+        console.log('OfflineImage: Cache check for', itemId, '- found:', !!cachedImage, cachedImage ? `(${cachedImage.substring(0, 50)}...)` : '')
         if (mounted && cachedImage) {
           setImageSrc(cachedImage)
           setLoading(false)
           return
         }
       } catch (err) {
+        console.error('OfflineImage: Cache check failed for', itemId, err)
         // Cache check failed, continue to fetch
       }
       
       // 2. Not in cache - fetch from API (only happens once per image)
       if (!navigator.onLine) {
         // Offline and not cached - show fallback
+        console.log('OfflineImage: Offline and not cached for', itemId)
         if (mounted) {
           setLoading(false)
           setFailed(true)
@@ -500,18 +506,21 @@ function OfflineImage({ itemId, imageUrl, alt, className, fallbackIcon = '📦' 
       
       try {
         const token = localStorage.getItem('token')
+        console.log('OfflineImage: Fetching from API for', itemId)
         const response = await fetch(`${API_BASE}/products/${itemId}/image`, {
           headers: token ? { 'Authorization': `Bearer ${token}` } : {}
         })
         
         if (response.ok) {
           const blob = await response.blob()
+          console.log('OfflineImage: Got blob for', itemId, '- size:', blob.size, 'type:', blob.type)
           if (blob.size > 100) {
             // Save to IndexedDB for future use (never fetch again!)
             try {
               await offlineStore.saveImage(itemId, blob)
+              console.log('OfflineImage: Saved to cache for', itemId)
             } catch (cacheErr) {
-              console.warn('Failed to cache image:', cacheErr)
+              console.warn('OfflineImage: Failed to cache image:', cacheErr)
             }
             // Convert to base64 for display
             const reader = new FileReader()
@@ -532,11 +541,13 @@ function OfflineImage({ itemId, imageUrl, alt, className, fallbackIcon = '📦' 
           }
         }
         // No image or failed
+        console.log('OfflineImage: No image or failed for', itemId)
         if (mounted) {
           setLoading(false)
           setFailed(true)
         }
       } catch (err) {
+        console.error('OfflineImage: Fetch error for', itemId, err)
         if (mounted) {
           setLoading(false)
           setFailed(true)
@@ -754,52 +765,175 @@ function LoginPage() {
 
 function HomePage({ onNavigate }) {
   const { agent, logout } = useAuth()
-  const { cartCount } = useCart()
+  const { cartCount, cartTotal } = useCart()
+  const { syncStatus, isOnline } = useOffline()
+  const [catalogues, setCatalogues] = useState([])
+  const [loadingCatalogues, setLoadingCatalogues] = useState(false)
   
-  const menuItems = [
-    { id: 'products', label: 'Products', icon: '📦', color: 'bg-primary-500 hover:bg-primary-600' },
-    { id: 'quickorder', label: 'Quick Order', icon: '⚡', color: 'bg-peach-400 hover:bg-peach-500' },
-    { id: 'customers', label: 'Customers', icon: '👥', color: 'bg-primary-600 hover:bg-primary-700' },
-    { id: 'cart', label: 'Cart', icon: '🛒', color: 'bg-wine-500 hover:bg-wine-600', badge: cartCount },
-    { id: 'orders', label: 'Orders', icon: '📋', color: 'bg-plum-500 hover:bg-plum-600' }
+  // Load catalogues on mount
+  useEffect(() => {
+    const loadCatalogues = async () => {
+      if (!isOnline) return
+      setLoadingCatalogues(true)
+      try {
+        const data = await apiRequest('/catalogues')
+        setCatalogues(data.catalogues || [])
+      } catch (err) {
+        console.error('Failed to load catalogues:', err)
+      } finally {
+        setLoadingCatalogues(false)
+      }
+    }
+    loadCatalogues()
+  }, [isOnline])
+  
+  const handleDownloadCatalogue = (catalogue) => {
+    // Open external URL in new tab
+    window.open(catalogue.url, '_blank')
+  }
+  
+  const quickActions = [
+    { id: 'products', label: 'Browse Products', icon: '📦', color: 'bg-primary-500' },
+    { id: 'quickorder', label: 'Quick Order', icon: '⚡', color: 'bg-peach-400' },
+    { id: 'customers', label: 'Customers', icon: '👥', color: 'bg-primary-600' },
+    { id: 'cart', label: cartCount > 0 ? `Cart (£${cartTotal.toFixed(0)})` : 'Cart', icon: '🛒', color: 'bg-wine-500', badge: cartCount },
   ]
   
   return (
-    <div className="flex-1 bg-gradient-to-br from-plum-500 to-plum-700 flex flex-col safe-area-top">
-      <div className="p-6 flex justify-between items-center">
-        <div className="flex items-center gap-3">
-          <img src="/logo.JPG" alt="DMB Logo" className="h-12 rounded-lg" />
-          <div className="text-white">
-            <h1 className="text-2xl font-bold">DMB Sales</h1>
-            <p className="text-plum-200">Welcome, {agent?.name}</p>
+    <div className="flex-1 bg-gray-100 flex flex-col safe-area-top overflow-auto">
+      {/* Header */}
+      <div className="bg-gradient-to-r from-plum-600 to-plum-500 text-white p-6">
+        <div className="flex justify-between items-start">
+          <div className="flex items-center gap-3">
+            <img src="/logo.JPG" alt="DMB Logo" className="h-14 rounded-xl shadow-lg" />
+            <div>
+              <h1 className="text-2xl font-bold">Welcome back, {agent?.name?.split(' ')[0]}!</h1>
+              <p className="text-plum-200 text-sm">{agent?.brands?.length} brands • DM Brands Ltd</p>
+            </div>
+          </div>
+          <button
+            onClick={logout}
+            className="text-plum-200 hover:text-white transition text-sm"
+          >
+            Logout
+          </button>
+        </div>
+        
+        {/* Quick Stats */}
+        <div className="grid grid-cols-3 gap-3 mt-4">
+          <div className="bg-white/10 rounded-xl p-3 text-center">
+            <p className="text-2xl font-bold">{syncStatus?.productCount || 0}</p>
+            <p className="text-xs text-plum-200">Products</p>
+          </div>
+          <div className="bg-white/10 rounded-xl p-3 text-center">
+            <p className="text-2xl font-bold">{syncStatus?.customerCount || 0}</p>
+            <p className="text-xs text-plum-200">Customers</p>
+          </div>
+          <div className="bg-white/10 rounded-xl p-3 text-center">
+            <p className="text-2xl font-bold">{cartCount}</p>
+            <p className="text-xs text-plum-200">In Cart</p>
           </div>
         </div>
-        <button
-          onClick={logout}
-          className="text-peach-400 hover:text-white transition px-4 py-2"
-        >
-          Logout
-        </button>
       </div>
       
-      <div className="flex-1 flex items-center justify-center p-6">
-        <div className="grid grid-cols-2 gap-6 w-full max-w-lg">
-          {menuItems.map(item => (
-            <button
-              key={item.id}
-              onClick={() => onNavigate(item.id)}
-              className={`${item.color} text-white rounded-2xl p-8 flex flex-col items-center justify-center transition transform active:scale-95 relative shadow-lg`}
-            >
-              <span className="text-6xl mb-4">{item.icon}</span>
-              <span className="text-xl font-semibold">{item.label}</span>
-              {item.badge > 0 && (
-                <span className="absolute top-4 right-4 bg-red-500 text-white text-sm w-8 h-8 rounded-full flex items-center justify-center font-bold shadow">
-                  {item.badge > 9 ? '9+' : item.badge}
-                </span>
-              )}
-            </button>
-          ))}
+      {/* Content */}
+      <div className="flex-1 p-4 space-y-4 overflow-auto">
+        {/* Quick Actions */}
+        <div>
+          <h2 className="text-lg font-semibold text-gray-800 mb-3">Quick Actions</h2>
+          <div className="grid grid-cols-2 gap-3">
+            {quickActions.map(action => (
+              <button
+                key={action.id}
+                onClick={() => onNavigate(action.id)}
+                className={`${action.color} text-white rounded-xl p-4 flex items-center gap-3 transition active:scale-95 relative shadow-md`}
+              >
+                <span className="text-3xl">{action.icon}</span>
+                <span className="font-medium text-left">{action.label}</span>
+                {action.badge > 0 && (
+                  <span className="absolute top-2 right-2 bg-red-500 text-white text-xs w-6 h-6 rounded-full flex items-center justify-center font-bold">
+                    {action.badge > 9 ? '9+' : action.badge}
+                  </span>
+                )}
+              </button>
+            ))}
+          </div>
         </div>
+        
+        {/* Catalogues Section */}
+        <div>
+          <h2 className="text-lg font-semibold text-gray-800 mb-3">📚 Latest Catalogues</h2>
+          {loadingCatalogues ? (
+            <div className="bg-white rounded-xl p-6 text-center">
+              <div className="w-6 h-6 border-2 border-gray-300 border-t-primary-600 rounded-full animate-spin mx-auto"></div>
+              <p className="text-sm text-gray-500 mt-2">Loading catalogues...</p>
+            </div>
+          ) : catalogues.length === 0 ? (
+            <div className="bg-white rounded-xl p-6 text-center text-gray-500">
+              <p className="text-4xl mb-2">📄</p>
+              <p>{isOnline ? 'No catalogues available for your brands' : 'Go online to view catalogues'}</p>
+            </div>
+          ) : (
+            <div className="space-y-2">
+              {catalogues.map(catalogue => (
+                <div
+                  key={catalogue.id}
+                  className="bg-white rounded-xl p-4 shadow-sm border border-gray-100"
+                >
+                  <div className="flex items-center justify-between">
+                    <div className="flex-1">
+                      <div className="flex items-center gap-2">
+                        <span className="text-xl">📕</span>
+                        <div>
+                          <h3 className="font-medium text-gray-800">{catalogue.name}</h3>
+                          <p className="text-xs text-gray-500">
+                            {catalogue.description} • {catalogue.size_mb}MB
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                    <button
+                      onClick={() => handleDownloadCatalogue(catalogue)}
+                      className="bg-primary-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-primary-700 transition flex items-center gap-2"
+                    >
+                      <span>📄</span>
+                      <span>View</span>
+                    </button>
+                  </div>
+                  <p className="text-xs text-gray-400 mt-2">Updated: {new Date(catalogue.updated).toLocaleDateString()}</p>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+        
+        {/* More Actions */}
+        <div>
+          <h2 className="text-lg font-semibold text-gray-800 mb-3">More</h2>
+          <div className="grid grid-cols-2 gap-3">
+            <button
+              onClick={() => onNavigate('orders')}
+              className="bg-white border border-gray-200 rounded-xl p-4 flex items-center gap-3 transition active:scale-95 shadow-sm"
+            >
+              <span className="text-2xl">📋</span>
+              <span className="font-medium text-gray-800">Recent Orders</span>
+            </button>
+            <button
+              onClick={() => onNavigate('settings')}
+              className="bg-white border border-gray-200 rounded-xl p-4 flex items-center gap-3 transition active:scale-95 shadow-sm"
+            >
+              <span className="text-2xl">⚙️</span>
+              <span className="font-medium text-gray-800">Settings</span>
+            </button>
+          </div>
+        </div>
+        
+        {/* Sync Status */}
+        {syncStatus?.lastProductSync && (
+          <div className="text-center text-xs text-gray-400 pt-2">
+            Last synced: {new Date(syncStatus.lastProductSync).toLocaleString()}
+          </div>
+        )}
       </div>
     </div>
   )
@@ -2500,10 +2634,71 @@ function NewAgentModal({ availableBrands, onSave, onClose }) {
 // Settings Tab with Sync Controls
 function SettingsTab() {
   const { agent, logout } = useAuth()
-  const { isOnline, syncStatus, isSyncing, doSync, submitPendingOrders } = useOffline()
+  const { isOnline, syncStatus, isSyncing, doSync, submitPendingOrders, refreshSyncStatus } = useOffline()
   const { addToast } = useToast()
   const [syncProgress, setSyncProgress] = useState('')
   const [isDownloadingImages, setIsDownloadingImages] = useState(false)
+  const [debugInfo, setDebugInfo] = useState(null)
+  const [showDebug, setShowDebug] = useState(false)
+  
+  // Debug function to check what's happening
+  const runDebug = async () => {
+    const info = {
+      isNativeApp: window.Capacitor?.isNativePlatform?.() || false,
+      capacitorAvailable: !!window.Capacitor,
+      apiBase: isNativeApp ? 'https://appdmbrands.com/api' : '/api',
+      navigator_onLine: navigator.onLine,
+      token: localStorage.getItem('token') ? 'present' : 'missing',
+    }
+    
+    // Check IndexedDB image count
+    try {
+      const count = await offlineStore.getImageCount()
+      info.indexedDBImageCount = count
+    } catch (err) {
+      info.indexedDBImageCount = 'error: ' + err.message
+    }
+    
+    // Try to get first few image IDs
+    try {
+      const ids = await offlineStore.listImageIds()
+      info.sampleImageIds = ids.slice(0, 5)
+    } catch (err) {
+      info.sampleImageIds = 'error: ' + err.message
+    }
+    
+    // Test fetch a single image
+    try {
+      const products = await offlineStore.getProducts()
+      if (products.length > 0) {
+        const testProduct = products[0]
+        info.testProductId = testProduct.item_id
+        
+        // Try fetching image
+        const token = localStorage.getItem('token')
+        const testUrl = `${info.apiBase}/products/${testProduct.item_id}/image`
+        info.testImageUrl = testUrl
+        
+        const response = await fetch(testUrl, {
+          headers: token ? { 'Authorization': `Bearer ${token}` } : {}
+        })
+        info.testFetchStatus = response.status
+        info.testFetchOk = response.ok
+        
+        if (response.ok) {
+          const blob = await response.blob()
+          info.testBlobSize = blob.size
+          info.testBlobType = blob.type
+        }
+      } else {
+        info.testProductId = 'no products synced'
+      }
+    } catch (err) {
+      info.testFetchError = err.message
+    }
+    
+    setDebugInfo(info)
+  }
   
   const handleSync = async () => {
     if (!isOnline) {
@@ -2544,6 +2739,7 @@ function SettingsTab() {
         setSyncProgress(progress.message || '')
       })
       setSyncProgress('')
+      await refreshSyncStatus()
       addToast(`Downloaded ${count} images for offline use`, 'success')
     } catch (err) {
       setSyncProgress('')
@@ -2676,6 +2872,40 @@ function SettingsTab() {
         >
           Log Out
         </button>
+      </div>
+      
+      {/* Debug Section */}
+      <div className="bg-gray-100 rounded-lg border border-gray-300 p-4">
+        <button
+          onClick={() => setShowDebug(!showDebug)}
+          className="w-full text-left font-semibold text-gray-700 flex justify-between items-center"
+        >
+          <span>🔧 Debug Info</span>
+          <span>{showDebug ? '▲' : '▼'}</span>
+        </button>
+        
+        {showDebug && (
+          <div className="mt-3 space-y-3">
+            <button
+              onClick={runDebug}
+              className="w-full py-2 bg-gray-600 text-white rounded-lg text-sm"
+            >
+              Run Diagnostics
+            </button>
+            
+            {debugInfo && (
+              <div className="bg-white rounded-lg p-3 text-xs font-mono overflow-auto max-h-64">
+                <pre>{JSON.stringify(debugInfo, null, 2)}</pre>
+              </div>
+            )}
+            
+            <div className="text-xs text-gray-600 space-y-1">
+              <p><strong>Native App:</strong> {String(window.Capacitor?.isNativePlatform?.() || false)}</p>
+              <p><strong>Capacitor:</strong> {window.Capacitor ? 'Available' : 'Not Available'}</p>
+              <p><strong>API Base:</strong> {isNativeApp ? 'https://appdmbrands.com/api' : '/api'}</p>
+            </div>
+          </div>
+        )}
       </div>
       
       {/* App Info */}

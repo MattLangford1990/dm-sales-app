@@ -1459,6 +1459,41 @@ async def debug_image_info():
         return {"error": str(e), "traceback": traceback.format_exc()}
 
 
+# ============ Catalogues ============
+
+# Load catalogues config
+CATALOGUES_FILE = os.path.join(os.path.dirname(__file__), "catalogues.json")
+def load_catalogues():
+    if os.path.exists(CATALOGUES_FILE):
+        with open(CATALOGUES_FILE, "r") as f:
+            return json.load(f).get("catalogues", [])
+    return []
+
+
+@app.get("/api/catalogues")
+async def get_catalogues(agent: TokenData = Depends(get_current_agent)):
+    """Get available catalogues - filtered by agent's brands"""
+    catalogues = load_catalogues()
+    
+    # Filter to agent's brands using the brand patterns
+    agent_patterns = get_all_brand_patterns(agent.brands)
+    
+    filtered = []
+    for cat in catalogues:
+        # Only include catalogues that have a URL set
+        if not cat.get("url"):
+            continue
+        cat_brand = cat.get("brand", "")
+        for pattern in agent_patterns:
+            if pattern.lower() in cat_brand.lower() or cat_brand.lower() in pattern.lower():
+                filtered.append(cat)
+                break
+    
+    return {"catalogues": filtered}
+
+
+# ============ Health Check ============
+
 @app.get("/api/health")
 async def health_check():
     """Health check endpoint"""

@@ -111,11 +111,14 @@ export async function syncCustomers(onProgress) {
 // Downloads via our API (which caches on server) and saves to IndexedDB
 export async function syncImages(products, onProgress) {
   console.log('SYNC: Starting image sync...')
+  console.log('SYNC: API_BASE =', API_BASE)
+  console.log('SYNC: Products to sync:', products.length)
   
   const token = localStorage.getItem('token')
   let cached = 0
   let skipped = 0
   let failed = 0
+  let noimage = 0
   const total = products.length
   const BATCH_SIZE = 5 // Smaller batches to avoid overwhelming the API
   
@@ -136,25 +139,39 @@ export async function syncImages(products, onProgress) {
           // Check if we already have this image cached
           const existing = await offlineStore.getImage(product.item_id)
           if (existing) {
-            return { status: 'skipped' }
+            return { status: 'skipped', item_id: product.item_id }
           }
           
           // Download from our API (which handles Zoho auth)
-          const response = await fetch(`${API_BASE}/products/${product.item_id}/image`, {
+          const url = `${API_BASE}/products/${product.item_id}/image`
+          console.log('SYNC: Fetching image from:', url)
+          
+          const response = await fetch(url, {
             headers: token ? { 'Authorization': `Bearer ${token}` } : {}
           })
           
+          console.log('SYNC: Response for', product.item_id, '- status:', response.status, 'ok:', response.ok)
+          
           if (response.ok) {
             const blob = await response.blob()
+            console.log('SYNC: Blob for', product.item_id, '- type:', blob.type, 'size:', blob.size)
+            
             // Only save if it's actually an image
             if (blob.type.startsWith('image/') && blob.size > 100) {
               await offlineStore.saveImage(product.item_id, blob)
-              return { status: 'cached' }
+              console.log('SYNC: Saved image for', product.item_id)
+              return { status: 'cached', item_id: product.item_id }
+            } else {
+              console.log('SYNC: Not an image or too small for', product.item_id)
+              return { status: 'noimage', item_id: product.item_id }
             }
+          } else {
+            console.log('SYNC: Failed response for', product.item_id)
+            return { status: 'noimage', item_id: product.item_id }
           }
-          return { status: 'noimage' }
         } catch (err) {
-          return { status: 'failed' }
+          console.error('SYNC: Error for product', product.item_id, err)
+          return { status: 'failed', item_id: product.item_id, error: err.message }
         }
       })
     )
@@ -164,8 +181,10 @@ export async function syncImages(products, onProgress) {
       if (r.status === 'fulfilled') {
         if (r.value.status === 'cached') cached++
         else if (r.value.status === 'skipped') skipped++
-        else failed++ // includes 'noimage' and 'failed'
+        else if (r.value.status === 'noimage') noimage++
+        else failed++
       } else {
+        console.error('SYNC: Promise rejected:', r.reason)
         failed++
       }
     })
@@ -178,7 +197,7 @@ export async function syncImages(products, onProgress) {
   await offlineStore.setSyncMeta('lastImageSync', new Date().toISOString())
   await offlineStore.setSyncMeta('imageCount', totalCached)
   
-  console.log(`SYNC: Images - ${cached} new, ${skipped} already cached, ${failed} no image/failed`)
+  console.log(`SYNC: Images complete - ${cached} new, ${skipped} already cached, ${noimage} no image, ${failed} failed`)
   return totalCached
 }
 

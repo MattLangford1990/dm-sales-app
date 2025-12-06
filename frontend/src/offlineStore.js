@@ -301,6 +301,7 @@ export async function clearCustomers() {
 // ============ Images ============
 
 export async function saveImage(itemId, imageBlob) {
+  console.log('offlineStore.saveImage: Saving image for', itemId, 'blob size:', imageBlob.size)
   const database = await initDB()
   const tx = database.transaction('images', 'readwrite')
   const store = tx.objectStore('images')
@@ -312,20 +313,55 @@ export async function saveImage(itemId, imageBlob) {
     reader.readAsDataURL(imageBlob)
   })
   
+  console.log('offlineStore.saveImage: Converted to base64, length:', base64.length)
   store.put({ item_id: itemId, data: base64 })
   
   return new Promise((resolve, reject) => {
-    tx.oncomplete = () => resolve()
-    tx.onerror = () => reject(tx.error)
+    tx.oncomplete = () => {
+      console.log('offlineStore.saveImage: Successfully saved', itemId)
+      resolve()
+    }
+    tx.onerror = () => {
+      console.error('offlineStore.saveImage: Failed to save', itemId, tx.error)
+      reject(tx.error)
+    }
   })
 }
 
 export async function getImage(itemId) {
+  console.log('offlineStore.getImage: Getting image for', itemId)
   const store = await getStore('images')
   
   return new Promise((resolve, reject) => {
     const request = store.get(itemId)
-    request.onsuccess = () => resolve(request.result?.data)
+    request.onsuccess = () => {
+      const result = request.result
+      console.log('offlineStore.getImage: Result for', itemId, '- found:', !!result, result ? `data length: ${result.data?.length}` : '')
+      resolve(result?.data)
+    }
+    request.onerror = () => {
+      console.error('offlineStore.getImage: Error for', itemId, request.error)
+      reject(request.error)
+    }
+  })
+}
+
+// Debug function to count images in IndexedDB
+export async function getImageCount() {
+  const store = await getStore('images')
+  return new Promise((resolve, reject) => {
+    const request = store.count()
+    request.onsuccess = () => resolve(request.result)
+    request.onerror = () => reject(request.error)
+  })
+}
+
+// Debug function to list all image IDs
+export async function listImageIds() {
+  const store = await getStore('images')
+  return new Promise((resolve, reject) => {
+    const request = store.getAllKeys()
+    request.onsuccess = () => resolve(request.result)
     request.onerror = () => reject(request.error)
   })
 }
