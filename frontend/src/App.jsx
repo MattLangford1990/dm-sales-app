@@ -985,9 +985,47 @@ function ProductsTab() {
   const [hasMore, setHasMore] = useState(false)
   const [usingOffline, setUsingOffline] = useState(false)
   const [selectedProduct, setSelectedProduct] = useState(null)
-  const { addToCart } = useCart()
+  const [viewMode, setViewMode] = useState(() => {
+    // Persist view preference
+    return localStorage.getItem('productsViewMode') || 'grid'
+  })
+  const { cart, addToCart, updateQuantity } = useCart()
   const { agent } = useAuth()
   const { isOnline } = useOffline()
+  const { addToast } = useToast()
+  
+  // Save view mode preference
+  useEffect(() => {
+    localStorage.setItem('productsViewMode', viewMode)
+  }, [viewMode])
+  
+  // Get cart quantity for a product
+  const getCartQty = (itemId) => {
+    const item = cart.find(i => i.item_id === itemId)
+    return item ? item.quantity : 0
+  }
+  
+  // Add one pack unit
+  const handleAdd = (e, product) => {
+    e.stopPropagation()
+    const packQty = product.pack_qty || 1
+    addToCart(product, packQty)
+    addToast(`+${packQty} ${product.name}`, 'success')
+  }
+  
+  // Remove one pack unit
+  const handleRemove = (e, product) => {
+    e.stopPropagation()
+    const packQty = product.pack_qty || 1
+    const currentQty = getCartQty(product.item_id)
+    const newQty = Math.max(0, currentQty - packQty)
+    updateQuantity(product.item_id, newQty)
+    if (newQty === 0) {
+      addToast(`Removed ${product.name}`, 'info')
+    } else {
+      addToast(`-${packQty} ${product.name}`, 'info')
+    }
+  }
   
   const loadProducts = async (reset = false) => {
     setLoading(true)
@@ -1076,13 +1114,40 @@ function ProductsTab() {
             </span>
           )}
         </div>
-        <input
-          type="search"
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          placeholder="Search products..."
-          className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-primary-500 focus:border-transparent outline-none"
-        />
+        <div className="flex gap-2">
+          <input
+            type="search"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search products..."
+            className="flex-1 px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-primary-500 focus:border-transparent outline-none"
+          />
+          {/* View Mode Toggle */}
+          <div className="flex bg-gray-200 rounded-xl p-1">
+            <button
+              onClick={() => setViewMode('list')}
+              className={`px-3 py-2 rounded-lg text-sm font-medium transition ${
+                viewMode === 'list' 
+                  ? 'bg-white text-primary-600 shadow-sm' 
+                  : 'text-gray-600 hover:text-gray-800'
+              }`}
+              title="List View"
+            >
+              ☰
+            </button>
+            <button
+              onClick={() => setViewMode('grid')}
+              className={`px-3 py-2 rounded-lg text-sm font-medium transition ${
+                viewMode === 'grid' 
+                  ? 'bg-white text-primary-600 shadow-sm' 
+                  : 'text-gray-600 hover:text-gray-800'
+              }`}
+              title="Grid View with Images"
+            >
+              ▦
+            </button>
+          </div>
+        </div>
       </div>
       
       <div className="flex-1 overflow-y-auto p-4">
@@ -1096,32 +1161,166 @@ function ProductsTab() {
               <p className="text-sm text-orange-600 mt-2">Sync data in Settings for offline access</p>
             )}
           </div>
-        ) : (
+        ) : viewMode === 'grid' ? (
+          /* Grid View with Images */
           <>
             <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
-              {products.map(product => (
-                <div
-                  key={product.item_id}
-                  onClick={() => setSelectedProduct(product)}
-                  className="bg-white rounded-xl border border-gray-200 p-3 cursor-pointer hover:border-primary-400 hover:shadow-md active:scale-95 transition"
-                >
-                  <p className="text-xs text-gray-500 mb-1">{product.sku}</p>
-                  <h3 className="font-medium text-gray-800 text-sm line-clamp-2 mb-2">{product.name}</h3>
-                  <div className="flex items-center justify-between mb-2">
-                    <span className="font-bold text-primary-600">£{product.rate?.toFixed(2)}</span>
-                    <span className={`text-xs px-2 py-1 rounded-full ${
-                      product.stock_on_hand > 0 ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'
-                    }`}>
-                      {product.stock_on_hand > 0 ? product.stock_on_hand : 'Out'}
-                    </span>
+              {products.map(product => {
+                const cartQty = getCartQty(product.item_id)
+                const packQty = product.pack_qty || 1
+                return (
+                  <div
+                    key={product.item_id}
+                    className="bg-white rounded-xl border border-gray-200 overflow-hidden hover:border-primary-400 hover:shadow-md transition"
+                  >
+                    {/* Product Image - clickable to open modal */}
+                    <div 
+                      onClick={() => setSelectedProduct(product)}
+                      className="aspect-square bg-gray-100 cursor-pointer"
+                    >
+                      <OfflineImage
+                        itemId={product.item_id}
+                        imageUrl={product.image_url}
+                        alt={product.name}
+                        className="w-full h-full object-contain"
+                        fallbackIcon="📦"
+                      />
+                    </div>
+                    
+                    {/* Product Info */}
+                    <div className="p-3">
+                      <p className="text-xs text-gray-500 mb-1">{product.sku}</p>
+                      <h3 
+                        onClick={() => setSelectedProduct(product)}
+                        className="font-medium text-gray-800 text-sm line-clamp-2 mb-2 cursor-pointer hover:text-primary-600"
+                      >
+                        {product.name}
+                      </h3>
+                      
+                      <div className="flex items-center justify-between mb-2">
+                        <span className="font-bold text-primary-600">£{product.rate?.toFixed(2)}</span>
+                        <span className={`text-xs px-2 py-1 rounded-full ${
+                          product.stock_on_hand > 0 ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'
+                        }`}>
+                          {product.stock_on_hand > 0 ? product.stock_on_hand : 'Out'}
+                        </span>
+                      </div>
+                      
+                      {product.pack_qty && (
+                        <p className="text-xs text-blue-600 mb-2">Pack of {product.pack_qty}</p>
+                      )}
+                      
+                      {/* Add/Remove Controls */}
+                      <div className="flex items-center justify-between bg-gray-50 rounded-lg p-1">
+                        <button
+                          onClick={(e) => handleRemove(e, product)}
+                          disabled={cartQty === 0}
+                          className={`w-10 h-10 rounded-lg font-bold text-xl flex items-center justify-center transition ${
+                            cartQty > 0 
+                              ? 'bg-red-100 text-red-600 hover:bg-red-200 active:scale-95' 
+                              : 'bg-gray-200 text-gray-400 cursor-not-allowed'
+                          }`}
+                        >
+                          −
+                        </button>
+                        
+                        <div className="text-center">
+                          {cartQty > 0 ? (
+                            <span className="font-bold text-primary-600">{cartQty}</span>
+                          ) : (
+                            <span className="text-gray-400 text-sm">0</span>
+                          )}
+                        </div>
+                        
+                        <button
+                          onClick={(e) => handleAdd(e, product)}
+                          className="w-10 h-10 rounded-lg font-bold text-xl bg-green-100 text-green-600 hover:bg-green-200 active:scale-95 transition flex items-center justify-center"
+                        >
+                          +
+                        </button>
+                      </div>
+                    </div>
                   </div>
-                  {product.pack_qty && (
-                    <span className="text-xs bg-blue-100 text-blue-700 px-2 py-1 rounded-full font-medium">
-                      Pack of {product.pack_qty}
-                    </span>
-                  )}
-                </div>
-              ))}
+                )
+              })}
+            </div>
+            
+            {selectedProduct && (
+              <ProductDetailModal
+                product={selectedProduct}
+                onClose={() => setSelectedProduct(null)}
+                onAddToCart={addToCart}
+              />
+            )}
+          </>
+        ) : (
+          /* List View - Compact without images */
+          <>
+            <div className="space-y-2">
+              {products.map(product => {
+                const cartQty = getCartQty(product.item_id)
+                const packQty = product.pack_qty || 1
+                return (
+                  <div
+                    key={product.item_id}
+                    className="bg-white rounded-xl border border-gray-200 p-3 flex items-center gap-3"
+                  >
+                    {/* Product Info - clickable */}
+                    <div 
+                      onClick={() => setSelectedProduct(product)}
+                      className="flex-1 min-w-0 cursor-pointer"
+                    >
+                      <div className="flex items-center gap-2 mb-1">
+                        <p className="text-xs text-gray-500">{product.sku}</p>
+                        {product.pack_qty && (
+                          <span className="text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full">
+                            ×{product.pack_qty}
+                          </span>
+                        )}
+                        <span className={`text-xs px-2 py-0.5 rounded-full ${
+                          product.stock_on_hand > 0 ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'
+                        }`}>
+                          {product.stock_on_hand > 0 ? product.stock_on_hand : 'Out'}
+                        </span>
+                      </div>
+                      <h3 className="font-medium text-gray-800 text-sm truncate hover:text-primary-600">
+                        {product.name}
+                      </h3>
+                      <span className="font-bold text-primary-600">£{product.rate?.toFixed(2)}</span>
+                    </div>
+                    
+                    {/* Add/Remove Controls */}
+                    <div className="flex items-center gap-1 bg-gray-50 rounded-lg p-1">
+                      <button
+                        onClick={(e) => handleRemove(e, product)}
+                        disabled={cartQty === 0}
+                        className={`w-9 h-9 rounded-lg font-bold text-lg flex items-center justify-center transition ${
+                          cartQty > 0 
+                            ? 'bg-red-100 text-red-600 hover:bg-red-200 active:scale-95' 
+                            : 'bg-gray-200 text-gray-400 cursor-not-allowed'
+                        }`}
+                      >
+                        −
+                      </button>
+                      
+                      <div className="w-10 text-center">
+                        {cartQty > 0 ? (
+                          <span className="font-bold text-primary-600">{cartQty}</span>
+                        ) : (
+                          <span className="text-gray-400 text-sm">0</span>
+                        )}
+                      </div>
+                      
+                      <button
+                        onClick={(e) => handleAdd(e, product)}
+                        className="w-9 h-9 rounded-lg font-bold text-lg bg-green-100 text-green-600 hover:bg-green-200 active:scale-95 transition flex items-center justify-center"
+                      >
+                        +
+                      </button>
+                    </div>
+                  </div>
+                )
+              })}
             </div>
             
             {selectedProduct && (
