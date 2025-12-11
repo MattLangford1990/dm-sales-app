@@ -1935,18 +1935,21 @@ function CartTab({ onOrderSubmitted }) {
                   <div className="flex items-center">
                     <label className="text-sm text-gray-600 mr-2">Qty:</label>
                     <button
-                      onClick={() => updateQuantity(item.item_id, item.quantity - 1)}
-                      className="w-8 h-8 bg-gray-200 rounded-lg font-bold"
+                      onClick={() => updateQuantity(item.item_id, Math.max(0, item.quantity - (item.pack_qty || 1)))}
+                      className="w-8 h-8 bg-red-100 text-red-600 rounded-lg font-bold hover:bg-red-200 active:scale-95 transition"
                     >
-                      -
+                      −
                     </button>
                     <span className="w-12 text-center font-medium">{item.quantity}</span>
                     <button
-                      onClick={() => updateQuantity(item.item_id, item.quantity + 1)}
-                      className="w-8 h-8 bg-gray-200 rounded-lg font-bold"
+                      onClick={() => updateQuantity(item.item_id, item.quantity + (item.pack_qty || 1))}
+                      className="w-8 h-8 bg-green-100 text-green-600 rounded-lg font-bold hover:bg-green-200 active:scale-95 transition"
                     >
                       +
                     </button>
+                    {item.pack_qty > 1 && (
+                      <span className="text-xs text-blue-600 ml-2">×{item.pack_qty}</span>
+                    )}
                   </div>
                   
                   <div className="flex items-center">
