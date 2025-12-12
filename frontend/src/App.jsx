@@ -1809,6 +1809,80 @@ function CustomerSelectModal({ onSelect, onClose }) {
 const FREIGHT_FREE_THRESHOLD = 250 // £250 ex VAT
 const DELIVERY_CHARGE = 10 // £10 ex VAT
 
+// Delivery Date Modal - appears when submitting order
+function DeliveryDateModal({ onSubmit, onClose, isOnline, loading }) {
+  const [deliveryDate, setDeliveryDate] = useState('')
+  const [notes, setNotes] = useState('')
+  const [error, setError] = useState('')
+  
+  const handleSubmit = () => {
+    if (!deliveryDate) {
+      setError('Please select a delivery date')
+      return
+    }
+    onSubmit({ deliveryDate, notes })
+  }
+  
+  return (
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+      <div className="bg-white rounded-2xl w-full max-w-md">
+        <div className="p-4 border-b border-gray-200 flex justify-between items-center">
+          <h2 className="text-lg font-bold">📅 Delivery Details</h2>
+          <button onClick={onClose} className="text-gray-500 text-2xl">&times;</button>
+        </div>
+        
+        <div className="p-4 space-y-4">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">Required Delivery Date *</label>
+            <input
+              type="date"
+              value={deliveryDate}
+              onChange={(e) => { setDeliveryDate(e.target.value); setError(''); }}
+              min={new Date().toISOString().split('T')[0]}
+              className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-primary-500 focus:border-transparent outline-none text-lg"
+            />
+          </div>
+          
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">Order Notes (optional)</label>
+            <textarea
+              value={notes}
+              onChange={(e) => setNotes(e.target.value)}
+              rows={3}
+              className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-primary-500 focus:border-transparent outline-none"
+              placeholder="Any special instructions..."
+            />
+          </div>
+          
+          {error && (
+            <div className="bg-red-50 text-red-600 px-4 py-3 rounded-xl text-sm">
+              {error}
+            </div>
+          )}
+        </div>
+        
+        <div className="p-4 border-t border-gray-200 space-y-2">
+          <button
+            onClick={handleSubmit}
+            disabled={loading}
+            className={`w-full py-4 rounded-xl font-semibold text-lg text-white transition ${
+              isOnline ? 'bg-green-600 hover:bg-green-700' : 'bg-orange-500 hover:bg-orange-600'
+            } disabled:opacity-50`}
+          >
+            {loading ? 'Submitting...' : isOnline ? '✓ Confirm & Submit Order' : '📴 Save Order Offline'}
+          </button>
+          <button
+            onClick={onClose}
+            className="w-full py-3 bg-gray-100 text-gray-700 rounded-xl font-medium hover:bg-gray-200 transition"
+          >
+            Cancel
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 function CartTab({ onOrderSubmitted }) {
   const { cart, customer, setCustomer, cartTotal, updateQuantity, updateDiscount, clearCart } = useCart()
   const { isOnline, refreshSyncStatus } = useOffline()
@@ -1816,9 +1890,8 @@ function CartTab({ onOrderSubmitted }) {
   const [loading, setLoading] = useState(false)
   const [exporting, setExporting] = useState(false)
   const [error, setError] = useState('')
-  const [notes, setNotes] = useState('')
-  const [deliveryDate, setDeliveryDate] = useState('')
   const [showCustomerSelect, setShowCustomerSelect] = useState(false)
+  const [showDeliveryModal, setShowDeliveryModal] = useState(false)
   
   // Calculate if delivery charge applies
   const needsDeliveryCharge = cartTotal < FREIGHT_FREE_THRESHOLD
@@ -1876,7 +1949,8 @@ function CartTab({ onOrderSubmitted }) {
     }
   }
   
-  const handleSubmitOrder = async () => {
+  // Called when user clicks Submit Order button
+  const handleSubmitClick = () => {
     if (!customer) {
       setError('Please select a customer first')
       return
@@ -1887,11 +1961,12 @@ function CartTab({ onOrderSubmitted }) {
       return
     }
     
-    if (!deliveryDate) {
-      setError('Please select a required delivery date')
-      return
-    }
-    
+    setError('')
+    setShowDeliveryModal(true)
+  }
+  
+  // Called from the delivery modal with date and notes
+  const handleSubmitOrder = async ({ deliveryDate, notes }) => {
     setLoading(true)
     setError('')
     
@@ -1916,8 +1991,7 @@ function CartTab({ onOrderSubmitted }) {
       try {
         await offlineStore.savePendingOrder({ orderData })
         clearCart()
-        setNotes('')
-        setDeliveryDate('')
+        setShowDeliveryModal(false)
         addToast('Order saved! Will submit when back online.', 'success')
         // Refresh sync status to update pending count
         await refreshSyncStatus()
@@ -1936,8 +2010,7 @@ function CartTab({ onOrderSubmitted }) {
       })
       
       clearCart()
-      setNotes('')
-      setDeliveryDate('')
+      setShowDeliveryModal(false)
       addToast(`Order ${result.salesorder_number} submitted successfully!`, 'success')
       onOrderSubmitted(result)
     } catch (err) {
@@ -1983,6 +2056,15 @@ function CartTab({ onOrderSubmitted }) {
         <CustomerSelectModal
           onSelect={setCustomer}
           onClose={() => setShowCustomerSelect(false)}
+        />
+      )}
+      
+      {showDeliveryModal && (
+        <DeliveryDateModal
+          onSubmit={handleSubmitOrder}
+          onClose={() => setShowDeliveryModal(false)}
+          isOnline={isOnline}
+          loading={loading}
         />
       )}
       
@@ -2073,53 +2155,28 @@ function CartTab({ onOrderSubmitted }) {
         <div className="border-t bg-white p-4 space-y-4 safe-area-bottom">
           {/* Free Delivery Progress Banner */}
           {needsDeliveryCharge ? (
-            <div className="bg-orange-50 border border-orange-200 rounded-xl p-3">
-              <div className="flex items-center justify-between mb-2">
-                <span className="text-orange-800 font-medium text-sm">🚚 Delivery Charge: £{DELIVERY_CHARGE.toFixed(2)}</span>
-                <span className="text-orange-600 text-sm">£{amountToFreeDelivery.toFixed(2)} to FREE delivery</span>
+            <div className="bg-orange-50 border border-orange-200 rounded-xl p-2">
+              <div className="flex items-center justify-between mb-1">
+                <span className="text-orange-800 font-medium text-xs">🚚 +£{DELIVERY_CHARGE.toFixed(2)} delivery</span>
+                <span className="text-orange-600 text-xs">£{amountToFreeDelivery.toFixed(2)} to FREE</span>
               </div>
-              <div className="w-full bg-orange-200 rounded-full h-2">
+              <div className="w-full bg-orange-200 rounded-full h-1.5">
                 <div 
-                  className="bg-orange-500 h-2 rounded-full transition-all duration-300"
+                  className="bg-orange-500 h-1.5 rounded-full transition-all duration-300"
                   style={{ width: `${Math.min((cartTotal / FREIGHT_FREE_THRESHOLD) * 100, 100)}%` }}
                 />
               </div>
-              <p className="text-xs text-orange-600 mt-1">Orders over £250 qualify for free delivery</p>
             </div>
           ) : (
-            <div className="bg-green-50 border border-green-200 rounded-xl p-3">
+            <div className="bg-green-50 border border-green-200 rounded-xl p-2">
               <div className="flex items-center gap-2">
-                <span className="text-green-600 text-xl">✅</span>
-                <span className="text-green-800 font-medium">FREE Delivery - Order qualifies!</span>
+                <span className="text-green-600">✅</span>
+                <span className="text-green-800 font-medium text-sm">FREE Delivery</span>
               </div>
             </div>
           )}
           
-          {/* Required Delivery Date */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">Required Delivery Date *</label>
-            <input
-              type="date"
-              value={deliveryDate}
-              onChange={(e) => setDeliveryDate(e.target.value)}
-              min={new Date().toISOString().split('T')[0]}
-              className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-primary-500 focus:border-transparent outline-none"
-            />
-          </div>
-          
-          {/* Order Notes */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">Order Notes</label>
-            <textarea
-              value={notes}
-              onChange={(e) => setNotes(e.target.value)}
-              rows={2}
-              className="w-full px-4 py-2 border border-gray-300 rounded-xl focus:ring-2 focus:ring-primary-500 focus:border-transparent outline-none"
-              placeholder="Add any notes for this order..."
-            />
-          </div>
-          
-          {/* Order Summary */}
+          {/* Order Summary - Compact */
           <div className="bg-gray-50 rounded-xl p-3 space-y-2">
             <div className="flex items-center justify-between text-sm">
               <span className="text-gray-600">Subtotal:</span>
@@ -2143,22 +2200,22 @@ function CartTab({ onOrderSubmitted }) {
             </div>
           )}
           
-          <div className="flex gap-3">
+          <div className="flex gap-2">
             <button
               onClick={handleExportQuote}
               disabled={exporting}
-              className="flex-1 bg-blue-600 text-white py-4 rounded-xl font-semibold text-lg hover:bg-blue-700 disabled:opacity-50 transition"
+              className="flex-1 bg-blue-600 text-white py-3 rounded-xl font-semibold hover:bg-blue-700 disabled:opacity-50 transition"
             >
-              {exporting ? 'Exporting...' : '📄 Export Quote'}
+              {exporting ? '...' : '📄 Quote'}
             </button>
             <button
-              onClick={handleSubmitOrder}
-              disabled={loading || !customer || !deliveryDate}
-              className={`flex-1 text-white py-4 rounded-xl font-semibold text-lg disabled:opacity-50 transition ${
+              onClick={handleSubmitClick}
+              disabled={loading || !customer}
+              className={`flex-[2] text-white py-3 rounded-xl font-semibold text-lg disabled:opacity-50 transition ${
                 isOnline ? 'bg-green-600 hover:bg-green-700' : 'bg-orange-500 hover:bg-orange-600'
               }`}
             >
-              {loading ? 'Saving...' : isOnline ? 'Submit Order' : '📴 Save Offline'}
+              {isOnline ? 'Submit Order →' : '📴 Save Offline →'}
             </button>
           </div>
         </div>
