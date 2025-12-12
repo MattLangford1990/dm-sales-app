@@ -851,29 +851,10 @@ function HomePage({ onNavigate }) {
   }, [isOnline])
   
   const handleDownloadCatalogue = (catalogue) => {
-    // Download from API - includes auth token
-    const token = localStorage.getItem('token')
-    const url = `${API_BASE}${catalogue.url}`
-    
-    // Open in new tab - browser will handle the PDF
-    const link = document.createElement('a')
-    link.href = url
-    link.target = '_blank'
-    
-    // For authenticated download, we need to fetch with token
-    fetch(url, {
-      headers: { 'Authorization': `Bearer ${token}` }
-    })
-      .then(response => response.blob())
-      .then(blob => {
-        const blobUrl = window.URL.createObjectURL(blob)
-        window.open(blobUrl, '_blank')
-      })
-      .catch(err => {
-        console.error('Failed to download catalogue:', err)
-        // Fallback - try direct link (will fail if auth required)
-        window.open(url, '_blank')
-      })
+    // Open external URL directly in new tab
+    if (catalogue.url) {
+      window.open(catalogue.url, '_blank')
+    }
   }
   
   const quickActions = [
@@ -2668,27 +2649,18 @@ function AdminTab() {
     }
   }
   
-  const handleUploadCatalogue = async (formData) => {
+  const handleSaveCatalogue = async (catalogueData) => {
     try {
-      const token = localStorage.getItem('token')
-      const response = await fetch(`${API_BASE}/admin/catalogues`, {
+      await apiRequest('/admin/catalogues', {
         method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${token}`
-        },
-        body: formData
+        body: JSON.stringify(catalogueData)
       })
       
-      if (!response.ok) {
-        const error = await response.json()
-        throw new Error(error.detail || 'Upload failed')
-      }
-      
-      addToast('Catalogue uploaded successfully', 'success')
+      addToast('Catalogue added successfully', 'success')
       setShowUploadCatalogue(false)
       loadData()
     } catch (err) {
-      addToast('Failed to upload: ' + err.message, 'error')
+      addToast('Failed to add: ' + err.message, 'error')
     }
   }
   
@@ -2821,7 +2793,7 @@ function AdminTab() {
             onClick={() => setShowUploadCatalogue(true)}
             className="bg-green-600 text-white px-4 py-2 rounded-lg text-sm font-medium"
           >
-            + Upload Catalogue
+            + Add Catalogue
           </button>
         </div>
         
@@ -2863,11 +2835,11 @@ function AdminTab() {
         )}
       </div>
       
-      {/* Upload Catalogue Modal */}
+      {/* Add Catalogue Modal */}
       {showUploadCatalogue && (
         <CatalogueUploadModal
           availableBrands={availableBrands}
-          onUpload={handleUploadCatalogue}
+          onSave={handleSaveCatalogue}
           onClose={() => setShowUploadCatalogue(false)}
         />
       )}
@@ -3116,55 +3088,48 @@ function NewAgentModal({ availableBrands, onSave, onClose }) {
   )
 }
 
-function CatalogueUploadModal({ availableBrands, onUpload, onClose }) {
-  const [file, setFile] = useState(null)
+function CatalogueUploadModal({ availableBrands, onSave, onClose }) {
+  const [url, setUrl] = useState('')
   const [brand, setBrand] = useState('')
   const [name, setName] = useState('')
   const [description, setDescription] = useState('')
-  const [uploading, setUploading] = useState(false)
+  const [sizeMb, setSizeMb] = useState('')
+  const [saving, setSaving] = useState(false)
   
   const handleSubmit = async (e) => {
     e.preventDefault()
     
-    if (!file || !brand || !name) {
-      alert('Please select a file, brand, and enter a name')
+    if (!url || !brand || !name) {
+      alert('Please enter a URL, select a brand, and enter a name')
       return
     }
     
-    setUploading(true)
-    
-    const formData = new FormData()
-    formData.append('file', file)
-    formData.append('brand', brand)
-    formData.append('name', name)
-    formData.append('description', description)
-    
-    await onUpload(formData)
-    setUploading(false)
+    setSaving(true)
+    await onSave({ url, brand, name, description, size_mb: parseFloat(sizeMb) || 0 })
+    setSaving(false)
   }
   
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
       <div className="bg-white rounded-2xl w-full max-w-md max-h-[90vh] overflow-auto">
         <div className="p-4 border-b border-gray-200 flex justify-between items-center">
-          <h2 className="text-lg font-bold">Upload Catalogue</h2>
+          <h2 className="text-lg font-bold">Add Catalogue</h2>
           <button onClick={onClose} className="text-gray-500 text-2xl">&times;</button>
         </div>
         
         <form onSubmit={handleSubmit} className="p-4 space-y-4">
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">PDF File *</label>
+            <label className="block text-sm font-medium text-gray-700 mb-1">PDF URL *</label>
             <input
-              type="file"
-              accept=".pdf"
-              onChange={(e) => setFile(e.target.files[0])}
+              type="url"
+              value={url}
+              onChange={(e) => setUrl(e.target.value)}
+              placeholder="https://www.dropbox.com/...?dl=1"
               className="w-full px-3 py-2 border border-gray-300 rounded-lg"
             />
-            {file && (
-              <p className="text-sm text-gray-500 mt-1">
-                {file.name} ({(file.size / 1024 / 1024).toFixed(1)}MB)
-              </p>
-            )}
+            <p className="text-xs text-gray-500 mt-1">
+              Use Dropbox (add ?dl=1) or any direct PDF link
+            </p>
           </div>
           
           <div>
@@ -3203,12 +3168,24 @@ function CatalogueUploadModal({ availableBrands, onUpload, onClose }) {
             />
           </div>
           
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">File Size (MB)</label>
+            <input
+              type="number"
+              step="0.1"
+              value={sizeMb}
+              onChange={(e) => setSizeMb(e.target.value)}
+              placeholder="e.g. 15.5"
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg"
+            />
+          </div>
+          
           <button
             type="submit"
-            disabled={uploading || !file || !brand || !name}
+            disabled={saving || !url || !brand || !name}
             className="w-full py-3 bg-green-600 text-white rounded-xl font-semibold disabled:bg-gray-400"
           >
-            {uploading ? 'Uploading...' : 'Upload Catalogue'}
+            {saving ? 'Saving...' : 'Add Catalogue'}
           </button>
         </form>
       </div>

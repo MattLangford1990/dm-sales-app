@@ -1461,12 +1461,8 @@ async def debug_image_info():
 
 # ============ Catalogues ============
 
-# Catalogues directory
-CATALOGUES_DIR = os.path.join(os.path.dirname(__file__), "static", "catalogues")
+# Catalogues stored as JSON with external URLs (Render has ephemeral filesystem)
 CATALOGUES_FILE = os.path.join(os.path.dirname(__file__), "catalogues.json")
-
-# Ensure catalogues directory exists
-os.makedirs(CATALOGUES_DIR, exist_ok=True)
 
 def load_catalogues():
     if os.path.exists(CATALOGUES_FILE):
@@ -1489,60 +1485,16 @@ async def get_catalogues(agent: TokenData = Depends(get_current_agent)):
     
     filtered = []
     for cat in catalogues:
-        # Only include catalogues that have a filename (uploaded)
-        if not cat.get("filename"):
+        # Only include catalogues that have a URL set
+        if not cat.get("url"):
             continue
         cat_brand = cat.get("brand", "")
         for pattern in agent_patterns:
             if pattern.lower() in cat_brand.lower() or cat_brand.lower() in pattern.lower():
-                # Add download URL
-                cat_copy = cat.copy()
-                cat_copy["url"] = f"/api/catalogues/{cat['id']}/download"
-                filtered.append(cat_copy)
+                filtered.append(cat)
                 break
     
     return {"catalogues": filtered}
-
-
-@app.get("/api/catalogues/{catalogue_id}/download")
-async def download_catalogue(
-    catalogue_id: str,
-    agent: TokenData = Depends(get_current_agent)
-):
-    """Download a catalogue PDF"""
-    catalogues = load_catalogues()
-    
-    # Find the catalogue
-    catalogue = None
-    for cat in catalogues:
-        if cat.get("id") == catalogue_id:
-            catalogue = cat
-            break
-    
-    if not catalogue or not catalogue.get("filename"):
-        raise HTTPException(status_code=404, detail="Catalogue not found")
-    
-    # Check agent has access to this brand
-    agent_patterns = get_all_brand_patterns(agent.brands)
-    cat_brand = catalogue.get("brand", "")
-    has_access = False
-    for pattern in agent_patterns:
-        if pattern.lower() in cat_brand.lower() or cat_brand.lower() in pattern.lower():
-            has_access = True
-            break
-    
-    if not has_access:
-        raise HTTPException(status_code=403, detail="You don't have access to this catalogue")
-    
-    file_path = os.path.join(CATALOGUES_DIR, catalogue["filename"])
-    if not os.path.exists(file_path):
-        raise HTTPException(status_code=404, detail="Catalogue file not found")
-    
-    return FileResponse(
-        file_path,
-        media_type="application/pdf",
-        filename=f"{catalogue.get('name', 'catalogue')}.pdf"
-    )
 
 
 @app.get("/api/admin/catalogues")
@@ -1555,34 +1507,23 @@ async def admin_list_catalogues(agent: TokenData = Depends(require_admin)):
     }
 
 
+class CatalogueCreate(BaseModel):
+    brand: str
+    name: str
+    description: str = ""
+    url: str
+    size_mb: float = 0
+
+
 @app.post("/api/admin/catalogues")
-async def admin_upload_catalogue(
-    file: UploadFile = File(...),
-    brand: str = Form(...),
-    name: str = Form(...),
-    description: str = Form(""),
+async def admin_add_catalogue(
+    catalogue: CatalogueCreate,
     agent: TokenData = Depends(require_admin)
 ):
-    """Upload a new catalogue PDF (admin only)"""
-    # Validate file type
-    if not file.filename.lower().endswith('.pdf'):
-        raise HTTPException(status_code=400, detail="Only PDF files are allowed")
-    
-    # Generate unique filename
-    timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
-    safe_brand = brand.lower().replace(" ", "-").replace("ä", "a").replace("ü", "u").replace("ö", "o")
-    filename = f"{safe_brand}_{timestamp}.pdf"
-    file_path = os.path.join(CATALOGUES_DIR, filename)
-    
-    # Save file
-    content = await file.read()
-    with open(file_path, "wb") as f:
-        f.write(content)
-    
-    # Calculate size
-    size_mb = round(len(content) / (1024 * 1024), 1)
-    
+    """Add a new catalogue with external URL (admin only)"""
     # Generate ID
+    timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
+    safe_brand = catalogue.brand.lower().replace(" ", "-").replace("ä", "a").replace("ü", "u").replace("ö", "o")
     catalogue_id = f"{safe_brand}-{timestamp}"
     
     # Load existing catalogues and add new one
@@ -1590,22 +1531,51 @@ async def admin_upload_catalogue(
     
     new_catalogue = {
         "id": catalogue_id,
-        "brand": brand,
-        "name": name,
-        "description": description,
-        "filename": filename,
-        "size_mb": size_mb,
+        "brand": catalogue.brand,
+        "name": catalogue.name,
+        "description": catalogue.description,
+        "url": catalogue.url,
+        "size_mb": catalogue.size_mb,
         "updated": datetime.now().strftime("%Y-%m-%d"),
-        "uploaded_by": agent.agent_name
+        "added_by": agent.agent_name
     }
     
     catalogues.append(new_catalogue)
     save_catalogues(catalogues)
     
     return {
-        "message": "Catalogue uploaded successfully",
+        "message": "Catalogue added successfully",
         "catalogue": new_catalogue
     }
+
+
+@app.put("/api/admin/catalogues/{catalogue_id}")
+async def admin_update_catalogue(
+    catalogue_id: str,
+    updates: CatalogueCreate,
+    agent: TokenData = Depends(require_admin)
+):
+    """Update a catalogue (admin only)"""
+    catalogues = load_catalogues()
+    
+    # Find and update the catalogue
+    found = False
+    for cat in catalogues:
+        if cat.get("id") == catalogue_id:
+            cat["brand"] = updates.brand
+            cat["name"] = updates.name
+            cat["description"] = updates.description
+            cat["url"] = updates.url
+            cat["size_mb"] = updates.size_mb
+            cat["updated"] = datetime.now().strftime("%Y-%m-%d")
+            found = True
+            break
+    
+    if not found:
+        raise HTTPException(status_code=404, detail="Catalogue not found")
+    
+    save_catalogues(catalogues)
+    return {"message": "Catalogue updated successfully"}
 
 
 @app.delete("/api/admin/catalogues/{catalogue_id}")
@@ -1617,26 +1587,12 @@ async def admin_delete_catalogue(
     catalogues = load_catalogues()
     
     # Find and remove the catalogue
-    catalogue = None
-    new_catalogues = []
-    for cat in catalogues:
-        if cat.get("id") == catalogue_id:
-            catalogue = cat
-        else:
-            new_catalogues.append(cat)
+    new_catalogues = [cat for cat in catalogues if cat.get("id") != catalogue_id]
     
-    if not catalogue:
+    if len(new_catalogues) == len(catalogues):
         raise HTTPException(status_code=404, detail="Catalogue not found")
     
-    # Delete the file if it exists
-    if catalogue.get("filename"):
-        file_path = os.path.join(CATALOGUES_DIR, catalogue["filename"])
-        if os.path.exists(file_path):
-            os.remove(file_path)
-    
-    # Save updated catalogues list
     save_catalogues(new_catalogues)
-    
     return {"message": "Catalogue deleted successfully"}
 
 
