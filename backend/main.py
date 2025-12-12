@@ -1511,6 +1511,55 @@ async def debug_pack_qty(sku: str):
     }
 
 
+# ============ German Stock ============
+
+# Load German stock data
+GERMAN_STOCK_FILES = {
+    "raeder": os.path.join(os.path.dirname(__file__), "german_stock_raeder.json")
+}
+
+def load_german_stock(brand: str) -> dict:
+    """Load German stock data for a brand"""
+    file_path = GERMAN_STOCK_FILES.get(brand.lower())
+    if file_path and os.path.exists(file_path):
+        with open(file_path, "r") as f:
+            return json.load(f)
+    return {}
+
+# Pre-load German stock at startup
+_german_stock_cache = {}
+for brand, path in GERMAN_STOCK_FILES.items():
+    if os.path.exists(path):
+        with open(path, "r") as f:
+            _german_stock_cache[brand] = json.load(f)
+            print(f"STARTUP: Loaded German stock for {brand}: {_german_stock_cache[brand].get('item_count', 0)} items")
+
+
+@app.get("/api/german-stock/{brand}")
+async def get_german_stock(brand: str):
+    """Get German warehouse stock data for a brand"""
+    brand_lower = brand.lower()
+    if brand_lower not in _german_stock_cache:
+        raise HTTPException(status_code=404, detail=f"No German stock data for brand: {brand}")
+    
+    data = _german_stock_cache[brand_lower]
+    return {
+        "brand": data.get("brand"),
+        "updated": data.get("updated"),
+        "item_count": data.get("item_count"),
+        "items": data.get("items", {})
+    }
+
+
+@app.get("/api/german-stock")
+async def get_all_german_stock():
+    """Get all German warehouse stock data"""
+    return {
+        "brands": list(_german_stock_cache.keys()),
+        "data": _german_stock_cache
+    }
+
+
 # ============ Static Files (Production) ============
 
 # Serve frontend static files in production

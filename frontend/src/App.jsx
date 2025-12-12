@@ -586,7 +586,14 @@ function OfflineImage({ itemId, imageUrl, alt, className, fallbackIcon = '📦' 
   )
 }
 
-function ProductDetailModal({ product, onClose, onAddToCart }) {
+// Helper to format restock date for display
+function formatRestockDate(dateStr) {
+  if (!dateStr) return null
+  const date = new Date(dateStr)
+  return date.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })
+}
+
+function ProductDetailModal({ product, onClose, onAddToCart, germanStockInfo }) {
   if (!product) return null
   
   return (
@@ -614,12 +621,29 @@ function ProductDetailModal({ product, onClose, onAddToCart }) {
           <p className="text-sm text-gray-500">{product.sku}</p>
           <h2 className="text-xl font-bold text-gray-800">{product.name}</h2>
           
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-3 flex-wrap">
             <span className="text-2xl font-bold text-primary-600">£{product.rate?.toFixed(2)}</span>
             <span className={`text-sm px-3 py-1 rounded-full ${product.stock_on_hand > 0 ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
               {product.stock_on_hand > 0 ? `${product.stock_on_hand} in stock` : 'Out of stock'}
             </span>
           </div>
+          
+          {/* German Stock Info */}
+          {germanStockInfo && (
+            <div className="flex items-center gap-2">
+              <span>🇩🇪</span>
+              <span className={`text-sm px-3 py-1 rounded-full ${
+                germanStockInfo.stock > 0 ? 'bg-blue-100 text-blue-700' : 'bg-gray-100 text-gray-600'
+              }`}>
+                {germanStockInfo.stock < 10 && germanStockInfo.restock_date
+                  ? `Due ${formatRestockDate(germanStockInfo.restock_date)}`
+                  : germanStockInfo.stock > 0 
+                    ? `${germanStockInfo.stock} in Germany` 
+                    : 'Out in Germany'
+                }
+              </span>
+            </div>
+          )}
           
           {product.pack_qty && (
             <span className="inline-block text-sm bg-blue-100 text-blue-700 px-3 py-1 rounded-full font-medium">
@@ -989,6 +1013,7 @@ function ProductsTab() {
     // Persist view preference
     return localStorage.getItem('productsViewMode') || 'grid'
   })
+  const [germanStock, setGermanStock] = useState(null) // German warehouse stock data
   const { cart, addToCart, updateQuantity } = useCart()
   const { agent } = useAuth()
   const { isOnline } = useOffline()
@@ -998,6 +1023,31 @@ function ProductsTab() {
   useEffect(() => {
     localStorage.setItem('productsViewMode', viewMode)
   }, [viewMode])
+  
+  // Fetch German stock when Räder brand is selected
+  useEffect(() => {
+    const fetchGermanStock = async () => {
+      if (selectedBrand?.toLowerCase() === 'räder' && isOnline) {
+        try {
+          const data = await apiRequest('/german-stock/raeder')
+          setGermanStock(data)
+          console.log('Loaded German stock:', data.item_count, 'items')
+        } catch (err) {
+          console.error('Failed to load German stock:', err)
+          setGermanStock(null)
+        }
+      } else {
+        setGermanStock(null)
+      }
+    }
+    fetchGermanStock()
+  }, [selectedBrand, isOnline])
+  
+  // Helper to get German stock for a product by SKU
+  const getGermanStockInfo = (sku) => {
+    if (!germanStock?.items || !sku) return null
+    return germanStock.items[sku] || null
+  }
   
   // Get cart quantity for a product
   const getCartQty = (itemId) => {
@@ -1108,6 +1158,11 @@ function ProductsTab() {
             ←
           </button>
           <span className="font-semibold text-gray-800">{selectedBrand}</span>
+          {germanStock && (
+            <span className="text-xs bg-blue-100 text-blue-700 px-2 py-1 rounded-full">
+              🇩🇪 Stock
+            </span>
+          )}
           {usingOffline && (
             <span className="ml-auto text-xs bg-orange-100 text-orange-700 px-2 py-1 rounded-full">
               Offline
@@ -1168,6 +1223,7 @@ function ProductsTab() {
               {products.map(product => {
                 const cartQty = getCartQty(product.item_id)
                 const packQty = product.pack_qty || 1
+                const deStock = getGermanStockInfo(product.sku)
                 return (
                   <div
                     key={product.item_id}
@@ -1205,6 +1261,23 @@ function ProductsTab() {
                           {product.stock_on_hand > 0 ? product.stock_on_hand : 'Out'}
                         </span>
                       </div>
+                      
+                      {/* German Stock Badge for Räder */}
+                      {deStock && (
+                        <div className="flex items-center gap-1 mb-2">
+                          <span className="text-xs">🇩🇪</span>
+                          <span className={`text-xs px-2 py-0.5 rounded-full ${
+                            deStock.stock > 0 ? 'bg-blue-100 text-blue-700' : 'bg-gray-100 text-gray-600'
+                          }`}>
+                            {deStock.stock < 10 && deStock.restock_date
+                              ? `Due ${formatRestockDate(deStock.restock_date)}`
+                              : deStock.stock > 0 
+                                ? deStock.stock 
+                                : 'Out'
+                            }
+                          </span>
+                        </div>
+                      )}
                       
                       {product.pack_qty && (
                         <p className="text-xs text-blue-600 mb-2">Pack of {product.pack_qty}</p>
@@ -1250,6 +1323,7 @@ function ProductsTab() {
                 product={selectedProduct}
                 onClose={() => setSelectedProduct(null)}
                 onAddToCart={addToCart}
+                germanStockInfo={getGermanStockInfo(selectedProduct.sku)}
               />
             )}
           </>
@@ -1260,6 +1334,7 @@ function ProductsTab() {
               {products.map(product => {
                 const cartQty = getCartQty(product.item_id)
                 const packQty = product.pack_qty || 1
+                const deStock = getGermanStockInfo(product.sku)
                 return (
                   <div
                     key={product.item_id}
@@ -1270,7 +1345,7 @@ function ProductsTab() {
                       onClick={() => setSelectedProduct(product)}
                       className="flex-1 min-w-0 cursor-pointer"
                     >
-                      <div className="flex items-center gap-2 mb-1">
+                      <div className="flex items-center gap-2 mb-1 flex-wrap">
                         <p className="text-xs text-gray-500">{product.sku}</p>
                         {product.pack_qty && (
                           <span className="text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full">
@@ -1282,6 +1357,22 @@ function ProductsTab() {
                         }`}>
                           {product.stock_on_hand > 0 ? product.stock_on_hand : 'Out'}
                         </span>
+                        {/* German Stock Badge for Räder */}
+                        {deStock && (
+                          <span className="flex items-center gap-0.5">
+                            <span className="text-xs">🇩🇪</span>
+                            <span className={`text-xs px-2 py-0.5 rounded-full ${
+                              deStock.stock > 0 ? 'bg-blue-100 text-blue-700' : 'bg-gray-100 text-gray-600'
+                            }`}>
+                              {deStock.stock < 10 && deStock.restock_date
+                                ? `Due ${formatRestockDate(deStock.restock_date)}`
+                                : deStock.stock > 0 
+                                  ? deStock.stock 
+                                  : 'Out'
+                              }
+                            </span>
+                          </span>
+                        )}
                       </div>
                       <h3 className="font-medium text-gray-800 text-sm truncate hover:text-primary-600">
                         {product.name}
@@ -1328,6 +1419,7 @@ function ProductsTab() {
                 product={selectedProduct}
                 onClose={() => setSelectedProduct(null)}
                 onAddToCart={addToCart}
+                germanStockInfo={getGermanStockInfo(selectedProduct.sku)}
               />
             )}
           </>
