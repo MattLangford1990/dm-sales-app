@@ -1,7 +1,22 @@
-import React, { useState, useEffect, createContext, useContext, useCallback, useRef } from 'react'
+import React, { useState, useEffect, createContext, useContext, useCallback, useRef, useMemo } from 'react'
 import { Routes, Route, Navigate, useNavigate } from 'react-router-dom'
 import * as offlineStore from './offlineStore'
 import * as syncService from './syncService'
+
+// Debounce hook for search inputs
+function useDebounce(value, delay = 300) {
+  const [debouncedValue, setDebouncedValue] = useState(value)
+  
+  useEffect(() => {
+    const handler = setTimeout(() => {
+      setDebouncedValue(value)
+    }, delay)
+    
+    return () => clearTimeout(handler)
+  }, [value, delay])
+  
+  return debouncedValue
+}
 
 // API helpers
 // In native app, use the deployed backend URL. In browser, use relative path (proxied in dev)
@@ -291,10 +306,26 @@ function OfflineProvider({ children }) {
   const [isSyncing, setIsSyncing] = useState(false)
   const stockIntervalRef = useRef(null)
   
+  // In-memory customer cache for instant search
+  const [customerCache, setCustomerCache] = useState([])
+  const [customerCacheLoaded, setCustomerCacheLoaded] = useState(false)
+  
   const refreshSyncStatus = async () => {
     const status = await syncService.getSyncStatus()
     setSyncStatus(status)
     return status
+  }
+  
+  // Load customers into memory once for instant search
+  const loadCustomerCache = async () => {
+    try {
+      const customers = await offlineStore.getCustomers()
+      setCustomerCache(customers)
+      setCustomerCacheLoaded(true)
+      console.log('Customer cache loaded:', customers.length, 'customers')
+    } catch (err) {
+      console.error('Failed to load customer cache:', err)
+    }
   }
   
   // Auto-sync when coming back online
@@ -318,6 +349,9 @@ function OfflineProvider({ children }) {
     
     // Load sync status on mount
     refreshSyncStatus()
+    
+    // Load customer cache on mount
+    loadCustomerCache()
     
     return () => {
       window.removeEventListener('online', handleOnline)
@@ -362,6 +396,8 @@ function OfflineProvider({ children }) {
       // includeImages: false - images load on-demand to save API calls
       await syncService.fullSync({ includeImages: false }, onProgress)
       await refreshSyncStatus()
+      // Refresh customer cache after sync
+      await loadCustomerCache()
     } finally {
       setIsSyncing(false)
     }
@@ -392,7 +428,10 @@ function OfflineProvider({ children }) {
       doSync,
       doStockSync,
       submitPendingOrders,
-      refreshSyncStatus
+      refreshSyncStatus,
+      customerCache,
+      customerCacheLoaded,
+      refreshCustomerCache: loadCustomerCache
     }}>
       {children}
     </OfflineContext.Provider>
@@ -1442,54 +1481,40 @@ function ProductsTab() {
 }
 
 function CustomersTab() {
-  const [customers, setCustomers] = useState([])
-  const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
   const [showNewForm, setShowNewForm] = useState(false)
-  const [usingOffline, setUsingOffline] = useState(false)
   const { setCustomer, customer: selectedCustomer } = useCart()
-  const { isOnline } = useOffline()
+  const { isOnline, customerCache, customerCacheLoaded, refreshCustomerCache } = useOffline()
   
-  const loadCustomers = async () => {
-    setLoading(true)
-    
-    // Try online first
-    if (isOnline) {
-      try {
-        const params = new URLSearchParams()
-        if (search) params.append('search', search)
-        const data = await apiRequest(`/customers?${params}`)
-        setCustomers(data.customers)
-        setUsingOffline(false)
-        setLoading(false)
-        return
-      } catch (err) {
-        console.log('Online fetch failed, trying offline:', err)
-      }
-    }
-    
-    // Use offline data
-    try {
-      const offlineCustomers = await offlineStore.getCustomers(search)
-      setCustomers(offlineCustomers)
-      setUsingOffline(true)
-    } catch (err) {
-      console.error('Failed to load offline customers:', err)
-      setCustomers([])
-    }
-    setLoading(false)
-  }
+  const debouncedSearch = useDebounce(search, 150)
   
-  useEffect(() => {
-    loadCustomers()
-  }, [search, isOnline])
+  // Filter customers from in-memory cache (instant)
+  const filteredCustomers = useMemo(() => {
+    if (!debouncedSearch) return customerCache.slice(0, 50) // Show first 50 if no search
+    
+    const searchLower = debouncedSearch.toLowerCase()
+    return customerCache
+      .filter(c =>
+        c.company_name?.toLowerCase().includes(searchLower) ||
+        c.contact_name?.toLowerCase().includes(searchLower) ||
+        c.email?.toLowerCase().includes(searchLower)
+      )
+      .slice(0, 50) // Limit to 50 results
+  }, [customerCache, debouncedSearch])
   
   const handleSelectCustomer = (customer) => {
     setCustomer(customer)
   }
   
+  const handleCustomerCreated = async (newCustomer) => {
+    setCustomer(newCustomer)
+    setShowNewForm(false)
+    // Refresh in-memory cache
+    await refreshCustomerCache()
+  }
+  
   if (showNewForm) {
-    return <NewCustomerForm onBack={() => setShowNewForm(false)} onCreated={(c) => { setCustomer(c); setShowNewForm(false); loadCustomers() }} />
+    return <NewCustomerForm onBack={() => setShowNewForm(false)} onCreated={handleCustomerCreated} />
   }
   
   return (
@@ -1503,9 +1528,9 @@ function CustomersTab() {
             placeholder="Search customers..."
             className="flex-1 px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-primary-500 focus:border-transparent outline-none"
           />
-          {usingOffline && (
-            <span className="text-xs bg-orange-100 text-orange-700 px-2 py-1 rounded-full whitespace-nowrap">
-              Offline
+          {customerCache.length > 0 && (
+            <span className="text-xs text-gray-500 whitespace-nowrap">
+              {filteredCustomers.length}{filteredCustomers.length === 50 ? '+' : ''}
             </span>
           )}
         </div>
@@ -1536,11 +1561,17 @@ function CustomersTab() {
       )}
       
       <div className="flex-1 overflow-y-auto">
-        {loading ? (
+        {!customerCacheLoaded ? (
           <LoadingSpinner />
+        ) : filteredCustomers.length === 0 ? (
+          <div className="flex flex-col items-center justify-center h-full text-gray-500 p-4">
+            <span className="text-4xl mb-2">👥</span>
+            <p>{search ? 'No customers match your search' : 'No customers synced yet'}</p>
+            <p className="text-sm text-gray-400 mt-1">Sync in Settings to load customers</p>
+          </div>
         ) : (
           <div className="divide-y">
-            {customers.map(customer => (
+            {filteredCustomers.map(customer => (
               <button
                 key={customer.contact_id}
                 onClick={() => handleSelectCustomer(customer)}
@@ -1719,40 +1750,24 @@ function NewCustomerForm({ onBack, onCreated }) {
 }
 
 function CustomerSelectModal({ onSelect, onClose }) {
-  const [customers, setCustomers] = useState([])
-  const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
-  const { isOnline } = useOffline()
+  const { customerCache, customerCacheLoaded } = useOffline()
   
-  const loadCustomers = async () => {
-    setLoading(true)
-    
-    if (isOnline) {
-      try {
-        const params = new URLSearchParams()
-        if (search) params.append('search', search)
-        const data = await apiRequest(`/customers?${params}`)
-        setCustomers(data.customers)
-        setLoading(false)
-        return
-      } catch (err) {
-        console.log('Online fetch failed, trying offline:', err)
-      }
-    }
-    
-    try {
-      const offlineCustomers = await offlineStore.getCustomers(search)
-      setCustomers(offlineCustomers)
-    } catch (err) {
-      console.error('Failed to load offline customers:', err)
-      setCustomers([])
-    }
-    setLoading(false)
-  }
+  const debouncedSearch = useDebounce(search, 150)
   
-  useEffect(() => {
-    loadCustomers()
-  }, [search, isOnline])
+  // Filter from in-memory cache (instant)
+  const filteredCustomers = useMemo(() => {
+    if (!debouncedSearch) return customerCache.slice(0, 50)
+    
+    const searchLower = debouncedSearch.toLowerCase()
+    return customerCache
+      .filter(c =>
+        c.company_name?.toLowerCase().includes(searchLower) ||
+        c.contact_name?.toLowerCase().includes(searchLower) ||
+        c.email?.toLowerCase().includes(searchLower)
+      )
+      .slice(0, 50)
+  }, [customerCache, debouncedSearch])
   
   return (
     <div className="fixed inset-0 bg-black/50 flex items-end sm:items-center justify-center z-50">
@@ -1774,15 +1789,15 @@ function CustomerSelectModal({ onSelect, onClose }) {
         </div>
         
         <div className="flex-1 overflow-y-auto">
-          {loading ? (
+          {!customerCacheLoaded ? (
             <LoadingSpinner />
-          ) : customers.length === 0 ? (
+          ) : filteredCustomers.length === 0 ? (
             <div className="p-8 text-center text-gray-500">
-              <p>No customers found</p>
+              <p>{search ? 'No customers match your search' : 'No customers synced'}</p>
             </div>
           ) : (
             <div className="divide-y">
-              {customers.map(customer => (
+              {filteredCustomers.map(customer => (
                 <button
                   key={customer.contact_id}
                   onClick={() => { onSelect(customer); onClose(); }}
