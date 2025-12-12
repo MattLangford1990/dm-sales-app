@@ -2176,7 +2176,7 @@ function CartTab({ onOrderSubmitted }) {
             </div>
           )}
           
-          {/* Order Summary - Compact */
+          {/* Order Summary - Compact */}
           <div className="bg-gray-50 rounded-xl p-3 space-y-2">
             <div className="flex items-center justify-between text-sm">
               <span className="text-gray-600">Subtotal:</span>
