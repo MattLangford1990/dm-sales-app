@@ -851,8 +851,29 @@ function HomePage({ onNavigate }) {
   }, [isOnline])
   
   const handleDownloadCatalogue = (catalogue) => {
-    // Open external URL in new tab
-    window.open(catalogue.url, '_blank')
+    // Download from API - includes auth token
+    const token = localStorage.getItem('token')
+    const url = `${API_BASE}${catalogue.url}`
+    
+    // Open in new tab - browser will handle the PDF
+    const link = document.createElement('a')
+    link.href = url
+    link.target = '_blank'
+    
+    // For authenticated download, we need to fetch with token
+    fetch(url, {
+      headers: { 'Authorization': `Bearer ${token}` }
+    })
+      .then(response => response.blob())
+      .then(blob => {
+        const blobUrl = window.URL.createObjectURL(blob)
+        window.open(blobUrl, '_blank')
+      })
+      .catch(err => {
+        console.error('Failed to download catalogue:', err)
+        // Fallback - try direct link (will fail if auth required)
+        window.open(url, '_blank')
+      })
   }
   
   const quickActions = [
@@ -2577,21 +2598,25 @@ function OrderSuccessModal({ order, onClose }) {
 function AdminTab() {
   const [agents, setAgents] = useState([])
   const [availableBrands, setAvailableBrands] = useState([])
+  const [catalogues, setCatalogues] = useState([])
   const [stats, setStats] = useState(null)
   const [loading, setLoading] = useState(true)
   const [editingAgent, setEditingAgent] = useState(null)
   const [showNewAgent, setShowNewAgent] = useState(false)
+  const [showUploadCatalogue, setShowUploadCatalogue] = useState(false)
   const { addToast } = useToast()
   
   const loadData = async () => {
     try {
       setLoading(true)
-      const [agentsData, statsData] = await Promise.all([
+      const [agentsData, statsData, cataloguesData] = await Promise.all([
         apiRequest('/admin/agents'),
-        apiRequest('/admin/stats')
+        apiRequest('/admin/stats'),
+        apiRequest('/admin/catalogues')
       ])
       setAgents(agentsData.agents || [])
       setAvailableBrands(agentsData.available_brands || [])
+      setCatalogues(cataloguesData.catalogues || [])
       setStats(statsData)
     } catch (err) {
       addToast('Failed to load admin data: ' + err.message, 'error')
@@ -2637,6 +2662,41 @@ function AdminTab() {
     try {
       await apiRequest(`/admin/agents/${agentId}`, { method: 'DELETE' })
       addToast('Agent deleted', 'success')
+      loadData()
+    } catch (err) {
+      addToast('Failed to delete: ' + err.message, 'error')
+    }
+  }
+  
+  const handleUploadCatalogue = async (formData) => {
+    try {
+      const token = localStorage.getItem('token')
+      const response = await fetch(`${API_BASE}/admin/catalogues`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`
+        },
+        body: formData
+      })
+      
+      if (!response.ok) {
+        const error = await response.json()
+        throw new Error(error.detail || 'Upload failed')
+      }
+      
+      addToast('Catalogue uploaded successfully', 'success')
+      setShowUploadCatalogue(false)
+      loadData()
+    } catch (err) {
+      addToast('Failed to upload: ' + err.message, 'error')
+    }
+  }
+  
+  const handleDeleteCatalogue = async (catalogueId) => {
+    if (!confirm('Are you sure you want to delete this catalogue?')) return
+    try {
+      await apiRequest(`/admin/catalogues/${catalogueId}`, { method: 'DELETE' })
+      addToast('Catalogue deleted', 'success')
       loadData()
     } catch (err) {
       addToast('Failed to delete: ' + err.message, 'error')
@@ -2750,6 +2810,65 @@ function AdminTab() {
           availableBrands={availableBrands}
           onSave={handleCreateAgent}
           onClose={() => setShowNewAgent(false)}
+        />
+      )}
+      
+      {/* Catalogues Section */}
+      <div className="bg-white rounded-xl border border-gray-200">
+        <div className="p-4 border-b border-gray-200 flex justify-between items-center">
+          <h3 className="font-semibold text-lg">📚 Catalogues</h3>
+          <button
+            onClick={() => setShowUploadCatalogue(true)}
+            className="bg-green-600 text-white px-4 py-2 rounded-lg text-sm font-medium"
+          >
+            + Upload Catalogue
+          </button>
+        </div>
+        
+        {catalogues.length === 0 ? (
+          <div className="p-8 text-center text-gray-500">
+            <span className="text-4xl">📄</span>
+            <p className="mt-2">No catalogues uploaded yet</p>
+          </div>
+        ) : (
+          <div className="divide-y divide-gray-100">
+            {catalogues.map(cat => (
+              <div key={cat.id} className="p-4">
+                <div className="flex items-start justify-between">
+                  <div className="flex-1">
+                    <div className="flex items-center gap-2">
+                      <span className="text-xl">📕</span>
+                      <span className="font-medium">{cat.name}</span>
+                    </div>
+                    <div className="text-sm text-gray-500 mt-1">
+                      {cat.brand} • {cat.size_mb}MB
+                    </div>
+                    {cat.description && (
+                      <div className="text-xs text-gray-400 mt-1">{cat.description}</div>
+                    )}
+                    <div className="text-xs text-gray-400 mt-1">
+                      Updated: {cat.updated} {cat.uploaded_by && `by ${cat.uploaded_by}`}
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => handleDeleteCatalogue(cat.id)}
+                    className="text-red-600 text-sm font-medium"
+                  >
+                    Delete
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+      
+      {/* Upload Catalogue Modal */}
+      {showUploadCatalogue && (
+        <CatalogueUploadModal
+          availableBrands={availableBrands}
+          onUpload={handleUploadCatalogue}
+          onClose={() => setShowUploadCatalogue(false)}
         />
       )}
     </div>
@@ -2992,6 +3111,106 @@ function NewAgentModal({ availableBrands, onSave, onClose }) {
             Create Agent
           </button>
         </div>
+      </div>
+    </div>
+  )
+}
+
+function CatalogueUploadModal({ availableBrands, onUpload, onClose }) {
+  const [file, setFile] = useState(null)
+  const [brand, setBrand] = useState('')
+  const [name, setName] = useState('')
+  const [description, setDescription] = useState('')
+  const [uploading, setUploading] = useState(false)
+  
+  const handleSubmit = async (e) => {
+    e.preventDefault()
+    
+    if (!file || !brand || !name) {
+      alert('Please select a file, brand, and enter a name')
+      return
+    }
+    
+    setUploading(true)
+    
+    const formData = new FormData()
+    formData.append('file', file)
+    formData.append('brand', brand)
+    formData.append('name', name)
+    formData.append('description', description)
+    
+    await onUpload(formData)
+    setUploading(false)
+  }
+  
+  return (
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+      <div className="bg-white rounded-2xl w-full max-w-md max-h-[90vh] overflow-auto">
+        <div className="p-4 border-b border-gray-200 flex justify-between items-center">
+          <h2 className="text-lg font-bold">Upload Catalogue</h2>
+          <button onClick={onClose} className="text-gray-500 text-2xl">&times;</button>
+        </div>
+        
+        <form onSubmit={handleSubmit} className="p-4 space-y-4">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">PDF File *</label>
+            <input
+              type="file"
+              accept=".pdf"
+              onChange={(e) => setFile(e.target.files[0])}
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg"
+            />
+            {file && (
+              <p className="text-sm text-gray-500 mt-1">
+                {file.name} ({(file.size / 1024 / 1024).toFixed(1)}MB)
+              </p>
+            )}
+          </div>
+          
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Brand *</label>
+            <select
+              value={brand}
+              onChange={(e) => setBrand(e.target.value)}
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg"
+            >
+              <option value="">Select a brand...</option>
+              {availableBrands.map(b => (
+                <option key={b} value={b}>{b}</option>
+              ))}
+            </select>
+          </div>
+          
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Catalogue Name *</label>
+            <input
+              type="text"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder="e.g. Räder 2026 Main Catalogue"
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg"
+            />
+          </div>
+          
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Description</label>
+            <input
+              type="text"
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              placeholder="e.g. Full product range for 2026"
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg"
+            />
+          </div>
+          
+          <button
+            type="submit"
+            disabled={uploading || !file || !brand || !name}
+            className="w-full py-3 bg-green-600 text-white rounded-xl font-semibold disabled:bg-gray-400"
+          >
+            {uploading ? 'Uploading...' : 'Upload Catalogue'}
+          </button>
+        </form>
       </div>
     </div>
   )
