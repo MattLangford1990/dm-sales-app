@@ -690,26 +690,26 @@ function ProductDetailModal({ product, onClose, onAddToCart, germanStockInfo }) 
   const allImages = mainImageUrl && !mainImageFailed ? [mainImageUrl, ...extraImages] : extraImages
   
   // Use image manifest for instant lookup - no HEAD requests needed!
+  // Also reset state when product changes
   useEffect(() => {
     if (!product?.sku) return
     
+    // Reset state for new product
+    setActiveIndex(0)
+    setMainImageFailed(false)
+    
     // Check manifest for this SKU's images
     const suffixes = imageManifest[product.sku] || []
+    console.log('Image manifest lookup for', product.sku, ':', suffixes)
     
     // Filter to only numbered suffixes (_1, _2, etc.) and build URLs
     const validExtras = suffixes
       .filter(suffix => suffix.match(/^_\d+$/)) // Only _1, _2, etc.
       .map(suffix => getCloudinaryUrl(`${product.sku}${suffix}`, 'medium'))
     
+    console.log('Extra images found:', validExtras.length)
     setExtraImages(validExtras)
   }, [product?.sku, imageManifest])
-  
-  // Reset state when product changes
-  useEffect(() => {
-    setActiveIndex(0)
-    setExtraImages([])
-    setMainImageFailed(false)
-  }, [product?.sku])
   
   if (!product) return null
   
