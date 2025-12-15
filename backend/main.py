@@ -455,6 +455,138 @@ async def admin_refresh_cache(agent: TokenData = Depends(require_admin)):
     }
 
 
+class CloudinarySyncRequest(BaseModel):
+    dry_run: bool = True  # Default to dry run for safety
+    limit: Optional[int] = None  # Limit number of images to process (for testing)
+
+
+@app.post("/api/admin/sync-images-to-cloudinary")
+async def admin_sync_images_to_cloudinary(
+    request: CloudinarySyncRequest,
+    agent: TokenData = Depends(require_admin)
+):
+    """
+    Sync all product images from Zoho to Cloudinary (admin only).
+    
+    - dry_run=True: Just report what would be synced (default)
+    - dry_run=False: Actually upload missing images to Cloudinary
+    - limit: Process only first N products (for testing)
+    """
+    import httpx
+    
+    # Check Cloudinary credentials
+    if not settings.cloudinary_cloud_name or not settings.cloudinary_api_key:
+        raise HTTPException(
+            status_code=500, 
+            detail="Cloudinary credentials not configured. Add CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY, CLOUDINARY_API_SECRET to .env"
+        )
+    
+    results = {
+        "dry_run": request.dry_run,
+        "total_products": 0,
+        "with_sku": 0,
+        "already_in_cloudinary": 0,
+        "missing_in_cloudinary": 0,
+        "uploaded": 0,
+        "no_image_in_zoho": 0,
+        "upload_failed": 0,
+        "errors": [],
+        "uploaded_skus": [],
+        "missing_skus": []  # SKUs that need uploading
+    }
+    
+    # Get all products from Zoho cache
+    all_items = await zoho_api.get_all_items_cached()
+    results["total_products"] = len(all_items)
+    
+    # Filter to items with SKU
+    items_with_sku = [item for item in all_items if item.get("sku")]
+    results["with_sku"] = len(items_with_sku)
+    
+    # Apply limit if specified
+    if request.limit:
+        items_with_sku = items_with_sku[:request.limit]
+    
+    # Cloudinary check URL pattern
+    cloudinary_base = f"https://res.cloudinary.com/{settings.cloudinary_cloud_name}/image/upload"
+    
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        for item in items_with_sku:
+            sku = item.get("sku")
+            
+            # Check if image exists in Cloudinary
+            cloudinary_url = f"{cloudinary_base}/products/{sku}.jpg"
+            try:
+                check_response = await client.head(cloudinary_url)
+                if check_response.status_code == 200:
+                    results["already_in_cloudinary"] += 1
+                    continue
+            except:
+                pass  # Assume not in Cloudinary if check fails
+            
+            # Image not in Cloudinary - check if we can get it from Zoho
+            results["missing_in_cloudinary"] += 1
+            results["missing_skus"].append(sku)
+            
+            if request.dry_run:
+                continue  # Don't actually upload in dry run
+            
+            # Try to get image from Zoho
+            try:
+                image_data = await zoho_api.get_item_image(item.get("item_id"))
+                
+                if not image_data:
+                    results["no_image_in_zoho"] += 1
+                    continue
+                
+                # Upload to Cloudinary
+                upload_url = f"https://api.cloudinary.com/v1_1/{settings.cloudinary_cloud_name}/image/upload"
+                
+                # Cloudinary upload with authentication
+                import hashlib
+                import time
+                
+                timestamp = str(int(time.time()))
+                public_id = f"products/{sku}"
+                
+                # Generate signature
+                params_to_sign = f"public_id={public_id}&timestamp={timestamp}{settings.cloudinary_api_secret}"
+                signature = hashlib.sha1(params_to_sign.encode()).hexdigest()
+                
+                # Upload
+                upload_response = await client.post(
+                    upload_url,
+                    data={
+                        "public_id": public_id,
+                        "timestamp": timestamp,
+                        "api_key": settings.cloudinary_api_key,
+                        "signature": signature,
+                        "overwrite": "true"
+                    },
+                    files={"file": (f"{sku}.jpg", image_data, "image/jpeg")}
+                )
+                
+                if upload_response.status_code == 200:
+                    results["uploaded"] += 1
+                    results["uploaded_skus"].append(sku)
+                else:
+                    results["upload_failed"] += 1
+                    results["errors"].append({
+                        "sku": sku,
+                        "error": f"Upload failed: {upload_response.status_code} - {upload_response.text[:200]}"
+                    })
+                    
+            except Exception as e:
+                results["upload_failed"] += 1
+                results["errors"].append({"sku": sku, "error": str(e)})
+    
+    # Limit the lists in response to avoid huge payloads
+    results["missing_skus"] = results["missing_skus"][:100]  # First 100 missing
+    results["errors"] = results["errors"][:50]  # First 50 errors
+    
+    return results
+
+
 @app.get("/api/admin/stats")
 async def admin_get_stats(agent: TokenData = Depends(require_admin)):
     """Get admin dashboard stats (admin only)"""

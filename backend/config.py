@@ -9,6 +9,11 @@ class Settings(BaseSettings):
     zoho_refresh_token: str
     zoho_org_id: str
     
+    # Cloudinary
+    cloudinary_cloud_name: str = ""
+    cloudinary_api_key: str = ""
+    cloudinary_api_secret: str = ""
+    
     # Security
     secret_key: str
     algorithm: str = "HS256"
