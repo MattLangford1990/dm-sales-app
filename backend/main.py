@@ -1769,6 +1769,61 @@ async def admin_delete_catalogue(
     return {"message": "Catalogue deleted successfully"}
 
 
+# ============ Static Product Feed ============
+
+# Cloudinary CDN URL for pre-generated product feed
+# Updated every 4 hours via cron job (scripts/generate_product_feed.py)
+PRODUCT_FEED_URL = f"https://res.cloudinary.com/{settings.cloudinary_cloud_name}/raw/upload/feeds/products.json"
+
+
+@app.get("/api/products/feed-url")
+async def get_product_feed_url():
+    """Get URL for static product feed (Cloudinary CDN)"""
+    return {
+        "url": PRODUCT_FEED_URL,
+        "description": "Static product feed, updated every 4 hours"
+    }
+
+
+@app.post("/api/admin/generate-feed")
+async def admin_generate_feed(agent: TokenData = Depends(require_admin)):
+    """Manually trigger product feed generation (admin only)"""
+    import subprocess
+    import sys
+    
+    script_path = os.path.join(os.path.dirname(__file__), "scripts", "generate_product_feed.py")
+    
+    if not os.path.exists(script_path):
+        raise HTTPException(status_code=500, detail="Feed generator script not found")
+    
+    try:
+        # Run the script
+        result = subprocess.run(
+            [sys.executable, script_path],
+            capture_output=True,
+            text=True,
+            timeout=300,  # 5 min timeout
+            cwd=os.path.dirname(script_path)
+        )
+        
+        if result.returncode != 0:
+            return {
+                "success": False,
+                "error": result.stderr,
+                "output": result.stdout
+            }
+        
+        return {
+            "success": True,
+            "message": "Feed generated successfully",
+            "output": result.stdout[-2000:] if len(result.stdout) > 2000 else result.stdout
+        }
+    except subprocess.TimeoutExpired:
+        raise HTTPException(status_code=500, detail="Feed generation timed out")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 # ============ Health Check ============
 
 @app.get("/api/health")

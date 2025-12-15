@@ -26,7 +26,11 @@ async function apiRequest(endpoint, options = {}) {
   return response.json()
 }
 
+// Static product feed URL (Cloudinary CDN) - updated every 4 hours
+const PRODUCT_FEED_URL = 'https://res.cloudinary.com/dcfbgveei/raw/upload/feeds/products.json'
+
 // Download all products for offline use
+// Uses static CDN feed (fast, no API calls) with fallback to live API
 export async function syncProducts(onProgress) {
   console.log('SYNC: Starting product sync...')
   
@@ -35,23 +39,48 @@ export async function syncProducts(onProgress) {
   // Clear existing products
   await offlineStore.clearProducts()
   
+  let products = []
+  let source = 'unknown'
+  
+  // Try static CDN feed first (fast, no API calls)
   try {
-    const data = await apiRequest('/products/sync')
-    const products = data.products || []
+    console.log('SYNC: Trying static CDN feed...')
+    const feedResponse = await fetch(PRODUCT_FEED_URL, { cache: 'no-cache' })
     
-    if (products.length > 0) {
-      await offlineStore.saveProducts(products)
+    if (feedResponse.ok) {
+      const feedData = await feedResponse.json()
+      products = feedData.products || []
+      source = 'cdn'
+      console.log(`SYNC: Got ${products.length} products from CDN feed (generated: ${feedData.generated_at})`)
     }
-    
-    await offlineStore.setSyncMeta('lastProductSync', new Date().toISOString())
-    await offlineStore.setSyncMeta('productCount', products.length)
-    
-    console.log(`SYNC: Downloaded ${products.length} products`)
-    return products
-  } catch (err) {
-    console.error('SYNC: Error fetching products', err)
-    throw err
+  } catch (feedErr) {
+    console.warn('SYNC: CDN feed failed, will try API:', feedErr.message)
   }
+  
+  // Fall back to live API if CDN feed failed or was empty
+  if (products.length === 0) {
+    try {
+      console.log('SYNC: Falling back to live API...')
+      const data = await apiRequest('/products/sync')
+      products = data.products || []
+      source = 'api'
+      console.log(`SYNC: Got ${products.length} products from API`)
+    } catch (err) {
+      console.error('SYNC: Error fetching products from API', err)
+      throw err
+    }
+  }
+  
+  if (products.length > 0) {
+    await offlineStore.saveProducts(products)
+  }
+  
+  await offlineStore.setSyncMeta('lastProductSync', new Date().toISOString())
+  await offlineStore.setSyncMeta('productCount', products.length)
+  await offlineStore.setSyncMeta('productSource', source)
+  
+  console.log(`SYNC: Downloaded ${products.length} products from ${source}`)
+  return products
 }
 
 // Lightweight stock-only sync (~50KB vs 1MB for full sync)
