@@ -25,14 +25,23 @@ const API_BASE = isNativeApp ? 'https://appdmbrands.com/api' : '/api'
 
 // Cloudinary image helper - LOW RES for sales app (fast mobile loading)
 const CLOUDINARY_BASE = 'https://res.cloudinary.com/dcfbgveei/image/upload'
+
+// Convert SKU to Cloudinary format (dots -> underscores for My Flame products)
+const skuToCloudinaryId = (sku) => {
+  if (!sku) return null
+  // Replace dots with underscores (My Flame uses dots, Cloudinary uses underscores)
+  return sku.replace(/\./g, '_')
+}
+
 const getCloudinaryUrl = (sku, size = 'small') => {
   if (!sku) return null
+  const cloudinarySku = skuToCloudinaryId(sku)
   const transforms = {
     small: 'w_300,q_60,f_auto',    // Product cards in app
     medium: 'w_400,q_70,f_auto',   // Product detail modal
     thumb: 'w_80,q_60,f_auto',     // Cart thumbnails
   }
-  return `${CLOUDINARY_BASE}/${transforms[size] || transforms.small}/products/${sku}.jpg`
+  return `${CLOUDINARY_BASE}/${transforms[size] || transforms.small}/products/${cloudinarySku}.jpg`
 }
 
 async function apiRequest(endpoint, options = {}) {
@@ -698,14 +707,16 @@ function ProductDetailModal({ product, onClose, onAddToCart, germanStockInfo }) 
     setActiveIndex(0)
     setMainImageFailed(false)
     
-    // Check manifest for this SKU's images
-    const suffixes = imageManifest[product.sku] || []
-    console.log('Image manifest lookup for', product.sku, ':', suffixes)
+    // Check manifest for this SKU's images (convert dots to underscores for My Flame)
+    const cloudinarySku = skuToCloudinaryId(product.sku)
+    const suffixes = imageManifest[cloudinarySku] || []
+    console.log('Image manifest lookup for', product.sku, '->', cloudinarySku, ':', suffixes)
     
     // Filter to only numbered suffixes (_1, _2, etc.) and build URLs
+    // Use cloudinarySku (with underscores) for the URL
     const validExtras = suffixes
       .filter(suffix => suffix.match(/^_\d+$/)) // Only _1, _2, etc.
-      .map(suffix => getCloudinaryUrl(`${product.sku}${suffix}`, 'medium'))
+      .map(suffix => getCloudinaryUrl(`${cloudinarySku}${suffix}`, 'medium'))
     
     console.log('Extra images found:', validExtras.length)
     setExtraImages(validExtras)
