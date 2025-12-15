@@ -552,52 +552,65 @@ function formatRestockDate(dateStr) {
 }
 
 function ProductDetailModal({ product, onClose, onAddToCart, germanStockInfo }) {
-  const [validImages, setValidImages] = useState([])
+  const [extraImages, setExtraImages] = useState([]) // Additional images beyond main
   const [activeIndex, setActiveIndex] = useState(0)
-  const [loading, setLoading] = useState(true)
+  const [mainImageFailed, setMainImageFailed] = useState(false)
   
-  // Check which images exist for this product
+  // Main image URL - show immediately
+  const mainImageUrl = product?.sku ? getCloudinaryUrl(product.sku, 'medium') : null
+  
+  // All valid images (main + extras)
+  const allImages = mainImageUrl && !mainImageFailed ? [mainImageUrl, ...extraImages] : extraImages
+  
+  // Lazy-load extra images in background after modal opens
   useEffect(() => {
     if (!product?.sku) return
     
-    const checkImages = async () => {
-      setLoading(true)
-      const potentialUrls = getProductImageUrls(product.sku, 'medium')
+    const checkExtraImages = async () => {
+      const validExtras = []
       
-      // Check each URL in parallel
-      const checks = potentialUrls.map(async (url, index) => {
+      // Check variant images one by one (SKU_1, SKU_2, etc.)
+      for (let i = 1; i <= 5; i++) {
+        const url = getCloudinaryUrl(`${product.sku}_${i}`, 'medium')
         try {
           const response = await fetch(url, { method: 'HEAD' })
           if (response.ok) {
-            return { url, index }
+            validExtras.push(url)
+          } else {
+            break // Stop checking once we hit a missing image
           }
         } catch (e) {
-          // Image doesn't exist
+          break
         }
-        return null
-      })
+      }
       
-      const results = await Promise.all(checks)
-      const validResults = results.filter(r => r !== null).sort((a, b) => a.index - b.index)
-      
-      setValidImages(validResults.map(r => r.url))
-      setActiveIndex(0)
-      setLoading(false)
+      if (validExtras.length > 0) {
+        setExtraImages(validExtras)
+      }
     }
     
-    checkImages()
+    // Small delay to prioritize main image loading
+    const timer = setTimeout(checkExtraImages, 300)
+    return () => clearTimeout(timer)
+  }, [product?.sku])
+  
+  // Reset state when product changes
+  useEffect(() => {
+    setActiveIndex(0)
+    setExtraImages([])
+    setMainImageFailed(false)
   }, [product?.sku])
   
   if (!product) return null
   
   const handlePrev = (e) => {
     e.stopPropagation()
-    setActiveIndex(i => (i > 0 ? i - 1 : validImages.length - 1))
+    setActiveIndex(i => (i > 0 ? i - 1 : allImages.length - 1))
   }
   
   const handleNext = (e) => {
     e.stopPropagation()
-    setActiveIndex(i => (i < validImages.length - 1 ? i + 1 : 0))
+    setActiveIndex(i => (i < allImages.length - 1 ? i + 1 : 0))
   }
   
   return (
@@ -611,22 +624,19 @@ function ProductDetailModal({ product, onClose, onAddToCart, germanStockInfo }) 
             ×
           </button>
           
-          {/* Main Image */}
+          {/* Main Image - shows immediately */}
           <div className="aspect-square bg-gray-100 relative">
-            {loading ? (
-              <div className="w-full h-full flex items-center justify-center">
-                <div className="w-8 h-8 border-4 border-gray-300 border-t-primary-600 rounded-full animate-spin"></div>
-              </div>
-            ) : validImages.length > 0 ? (
+            {allImages.length > 0 ? (
               <>
                 <img
-                  src={validImages[activeIndex]}
+                  src={allImages[activeIndex]}
                   alt={product.name}
                   className="w-full h-full object-contain"
+                  onError={() => activeIndex === 0 && setMainImageFailed(true)}
                 />
                 
                 {/* Navigation arrows if multiple images */}
-                {validImages.length > 1 && (
+                {allImages.length > 1 && (
                   <>
                     <button
                       onClick={handlePrev}
@@ -643,7 +653,7 @@ function ProductDetailModal({ product, onClose, onAddToCart, germanStockInfo }) 
                     
                     {/* Image counter */}
                     <div className="absolute bottom-3 left-1/2 -translate-x-1/2 bg-black/60 text-white text-sm px-3 py-1 rounded-full">
-                      {activeIndex + 1} / {validImages.length}
+                      {activeIndex + 1} / {allImages.length}
                     </div>
                   </>
                 )}
@@ -656,9 +666,9 @@ function ProductDetailModal({ product, onClose, onAddToCart, germanStockInfo }) 
           </div>
           
           {/* Thumbnail strip if multiple images */}
-          {validImages.length > 1 && (
+          {allImages.length > 1 && (
             <div className="flex gap-2 p-2 bg-gray-50 overflow-x-auto">
-              {validImages.map((url, idx) => (
+              {allImages.map((url, idx) => (
                 <button
                   key={idx}
                   onClick={() => setActiveIndex(idx)}
@@ -1058,15 +1068,17 @@ function PageHeader({ title, onBack }) {
   )
 }
 
+const ITEMS_PER_PAGE = 8
+
 function ProductsTab() {
   const [selectedBrand, setSelectedBrand] = useState(null)
-  const [products, setProducts] = useState([])
+  const [allProducts, setAllProducts] = useState([]) // All loaded products
+  const [visibleCount, setVisibleCount] = useState(ITEMS_PER_PAGE) // How many to show
   const [loading, setLoading] = useState(false)
   const [search, setSearch] = useState('')
-  const [page, setPage] = useState(1)
-  const [hasMore, setHasMore] = useState(false)
   const [usingOffline, setUsingOffline] = useState(false)
   const [selectedProduct, setSelectedProduct] = useState(null)
+  const [prefetchedImages, setPrefetchedImages] = useState(new Set()) // Track prefetched images
   const [viewMode, setViewMode] = useState(() => {
     // Persist view preference
     return localStorage.getItem('productsViewMode') || 'grid'
@@ -1076,6 +1088,12 @@ function ProductsTab() {
   const { agent } = useAuth()
   const { isOnline } = useOffline()
   const { addToast } = useToast()
+  const observerRef = useRef(null)
+  const loadMoreRef = useRef(null)
+  
+  // Products currently visible
+  const products = allProducts.slice(0, visibleCount)
+  const hasMore = visibleCount < allProducts.length
   
   // Save view mode preference
   useEffect(() => {
@@ -1135,23 +1153,69 @@ function ProductsTab() {
     }
   }
   
-  const loadProducts = async (reset = false) => {
+  // Prefetch images for upcoming products (next 2 pages)
+  const prefetchImages = useCallback((productsToPreload) => {
+    productsToPreload.forEach(product => {
+      if (product.sku && !prefetchedImages.has(product.sku)) {
+        const img = new Image()
+        img.src = getCloudinaryUrl(product.sku, 'small')
+        setPrefetchedImages(prev => new Set([...prev, product.sku]))
+      }
+    })
+  }, [prefetchedImages])
+  
+  // When visible products change, prefetch next 2 pages
+  useEffect(() => {
+    if (allProducts.length > 0 && viewMode === 'grid') {
+      const nextStart = visibleCount
+      const nextEnd = Math.min(visibleCount + (ITEMS_PER_PAGE * 2), allProducts.length)
+      const nextProducts = allProducts.slice(nextStart, nextEnd)
+      if (nextProducts.length > 0) {
+        // Delay prefetch slightly to prioritize visible images
+        const timer = setTimeout(() => prefetchImages(nextProducts), 500)
+        return () => clearTimeout(timer)
+      }
+    }
+  }, [visibleCount, allProducts, viewMode, prefetchImages])
+  
+  // Intersection Observer for infinite scroll
+  useEffect(() => {
+    if (observerRef.current) observerRef.current.disconnect()
+    
+    observerRef.current = new IntersectionObserver(
+      (entries) => {
+        if (entries[0].isIntersecting && hasMore && !loading) {
+          setVisibleCount(prev => Math.min(prev + ITEMS_PER_PAGE, allProducts.length))
+        }
+      },
+      { threshold: 0.1, rootMargin: '100px' }
+    )
+    
+    if (loadMoreRef.current) {
+      observerRef.current.observe(loadMoreRef.current)
+    }
+    
+    return () => {
+      if (observerRef.current) observerRef.current.disconnect()
+    }
+  }, [hasMore, loading, allProducts.length])
+  
+  const loadProducts = async () => {
     setLoading(true)
+    setVisibleCount(ITEMS_PER_PAGE) // Reset to first page
+    setPrefetchedImages(new Set()) // Clear prefetch cache
     
     // Try online first, fall back to offline
     if (isOnline) {
       try {
-        const currentPage = reset ? 1 : page
-        const params = new URLSearchParams({ page: currentPage })
+        const params = new URLSearchParams({ page: 1, limit: 500 }) // Load all at once
         if (search) params.append('search', search)
         if (selectedBrand) params.append('brand', selectedBrand)
         
         const data = await apiRequest(`/products?${params}`)
         
-        setProducts(reset ? data.products : [...products, ...data.products])
-        setHasMore(data.has_more)
+        setAllProducts(data.products || [])
         setUsingOffline(false)
-        if (reset) setPage(1)
         setLoading(false)
         return
       } catch (err) {
@@ -1165,19 +1229,18 @@ function ProductsTab() {
         brand: selectedBrand,
         search: search
       })
-      setProducts(offlineProducts)
-      setHasMore(false)
+      setAllProducts(offlineProducts)
       setUsingOffline(true)
     } catch (err) {
       console.error('Failed to load offline products:', err)
-      setProducts([])
+      setAllProducts([])
     }
     setLoading(false)
   }
   
   useEffect(() => {
     if (selectedBrand) {
-      loadProducts(true)
+      loadProducts()
     }
   }, [search, selectedBrand, isOnline])
   
@@ -1293,8 +1356,7 @@ function ProductsTab() {
                       className="aspect-square bg-gray-100 cursor-pointer"
                     >
                       <OfflineImage
-                        itemId={product.item_id}
-                        imageUrl={product.image_url}
+                        sku={product.sku}
                         alt={product.name}
                         className="w-full h-full object-contain"
                         fallbackIcon="📦"
@@ -1483,15 +1545,17 @@ function ProductsTab() {
           </>
         )}
         
+        {/* Infinite scroll trigger */}
         {hasMore && (
-          <div className="mt-4 text-center">
-            <button
-              onClick={() => { setPage(p => p + 1); loadProducts() }}
-              disabled={loading}
-              className="bg-gray-100 text-gray-700 px-6 py-3 rounded-xl font-medium hover:bg-gray-200 transition"
-            >
-              {loading ? 'Loading...' : 'Load More'}
-            </button>
+          <div ref={loadMoreRef} className="py-8 flex justify-center">
+            <div className="w-6 h-6 border-2 border-gray-300 border-t-primary-600 rounded-full animate-spin"></div>
+          </div>
+        )}
+        
+        {/* Show total count */}
+        {!loading && allProducts.length > 0 && (
+          <div className="text-center text-sm text-gray-500 py-4">
+            Showing {products.length} of {allProducts.length} products
           </div>
         )}
       </div>
@@ -2115,11 +2179,11 @@ function CartTab({ onOrderSubmitted }) {
                 <div className="flex gap-3 mb-2">
                   <div className="w-16 h-16 rounded-lg flex-shrink-0 overflow-hidden">
                     <OfflineImage
-                      itemId={item.item_id}
-                      imageUrl={item.image_url}
+                      sku={item.sku}
                       alt={item.name}
                       className="w-full h-full object-cover"
                       fallbackIcon="📦"
+                      size="thumb"
                     />
                   </div>
                   <div className="flex-1 min-w-0">
