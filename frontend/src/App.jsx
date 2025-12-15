@@ -507,12 +507,37 @@ function LoadingSpinner() {
   )
 }
 
-// Simple image component using Cloudinary CDN
-// Much faster than fetching from API - images served directly from CDN
+// Smart image component - checks offline cache first, then Cloudinary CDN
+// Uses SKU for both IndexedDB lookup and Cloudinary URL
 function OfflineImage({ sku, alt, className, fallbackIcon = '📦', size = 'small' }) {
+  const [imageSrc, setImageSrc] = useState(null)
   const [failed, setFailed] = useState(false)
+  const [checked, setChecked] = useState(false)
   
-  if (!sku || failed) {
+  useEffect(() => {
+    if (!sku) {
+      setChecked(true)
+      return
+    }
+    
+    // Check IndexedDB first for offline cached image
+    offlineStore.getImage(sku).then(cachedData => {
+      if (cachedData) {
+        // Use cached base64 image
+        setImageSrc(cachedData)
+      } else {
+        // Fall back to Cloudinary CDN
+        setImageSrc(getCloudinaryUrl(sku, size))
+      }
+      setChecked(true)
+    }).catch(() => {
+      // Error reading cache, use Cloudinary
+      setImageSrc(getCloudinaryUrl(sku, size))
+      setChecked(true)
+    })
+  }, [sku, size])
+  
+  if (!sku || failed || !checked) {
     return (
       <div className={`flex items-center justify-center bg-gray-100 ${className}`}>
         <span className="text-4xl">{fallbackIcon}</span>
@@ -520,11 +545,9 @@ function OfflineImage({ sku, alt, className, fallbackIcon = '📦', size = 'smal
     )
   }
   
-  const imageUrl = getCloudinaryUrl(sku, size)
-  
   return (
     <img
-      src={imageUrl}
+      src={imageSrc}
       alt={alt}
       className={className}
       onError={() => setFailed(true)}

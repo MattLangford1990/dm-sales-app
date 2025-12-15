@@ -107,20 +107,22 @@ export async function syncCustomers(onProgress) {
   }
 }
 
+// Cloudinary CDN - low res for offline storage
+const CLOUDINARY_BASE = 'https://res.cloudinary.com/dcfbgveei/image/upload'
+const CLOUDINARY_TRANSFORM = 'w_300,q_60,f_auto' // Same as 'small' in App.jsx
+
 // Pre-cache product images for offline use
-// Downloads via our API (which caches on server) and saves to IndexedDB
+// Downloads from Cloudinary CDN (fast, no rate limits) and saves to IndexedDB
 export async function syncImages(products, onProgress) {
-  console.log('SYNC: Starting image sync...')
-  console.log('SYNC: API_BASE =', API_BASE)
+  console.log('SYNC: Starting image sync from Cloudinary...')
   console.log('SYNC: Products to sync:', products.length)
   
-  const token = localStorage.getItem('token')
   let cached = 0
   let skipped = 0
   let failed = 0
   let noimage = 0
   const total = products.length
-  const BATCH_SIZE = 5 // Smaller batches to avoid overwhelming the API
+  const BATCH_SIZE = 10 // Cloudinary can handle more concurrent requests than our API
   
   for (let i = 0; i < products.length; i += BATCH_SIZE) {
     const batch = products.slice(i, i + BATCH_SIZE)
@@ -135,43 +137,40 @@ export async function syncImages(products, onProgress) {
     // Download batch in parallel
     const results = await Promise.allSettled(
       batch.map(async (product) => {
+        const sku = product.sku
+        if (!sku) {
+          return { status: 'noimage', sku: 'no-sku' }
+        }
+        
         try {
-          // Check if we already have this image cached
-          const existing = await offlineStore.getImage(product.item_id)
+          // Check if we already have this image cached (by SKU)
+          const existing = await offlineStore.getImage(sku)
           if (existing) {
-            return { status: 'skipped', item_id: product.item_id }
+            return { status: 'skipped', sku }
           }
           
-          // Download from our API (which handles Zoho auth)
-          const url = `${API_BASE}/products/${product.item_id}/image`
-          console.log('SYNC: Fetching image from:', url)
+          // Download from Cloudinary CDN
+          const url = `${CLOUDINARY_BASE}/${CLOUDINARY_TRANSFORM}/products/${sku}.jpg`
           
-          const response = await fetch(url, {
-            headers: token ? { 'Authorization': `Bearer ${token}` } : {}
-          })
-          
-          console.log('SYNC: Response for', product.item_id, '- status:', response.status, 'ok:', response.ok)
+          const response = await fetch(url)
           
           if (response.ok) {
             const blob = await response.blob()
-            console.log('SYNC: Blob for', product.item_id, '- type:', blob.type, 'size:', blob.size)
             
-            // Only save if it's actually an image
-            if (blob.type.startsWith('image/') && blob.size > 100) {
-              await offlineStore.saveImage(product.item_id, blob)
-              console.log('SYNC: Saved image for', product.item_id)
-              return { status: 'cached', item_id: product.item_id }
+            // Only save if it's actually an image with content
+            if (blob.type.startsWith('image/') && blob.size > 500) {
+              await offlineStore.saveImage(sku, blob)
+              return { status: 'cached', sku }
             } else {
-              console.log('SYNC: Not an image or too small for', product.item_id)
-              return { status: 'noimage', item_id: product.item_id }
+              return { status: 'noimage', sku }
             }
           } else {
-            console.log('SYNC: Failed response for', product.item_id)
-            return { status: 'noimage', item_id: product.item_id }
+            // 404 = no image for this product
+            return { status: 'noimage', sku }
           }
         } catch (err) {
-          console.error('SYNC: Error for product', product.item_id, err)
-          return { status: 'failed', item_id: product.item_id, error: err.message }
+          console.error('SYNC: Error for product', sku, err)
+          return { status: 'failed', sku, error: err.message }
         }
       })
     )
@@ -189,8 +188,8 @@ export async function syncImages(products, onProgress) {
       }
     })
     
-    // Small delay between batches to be nice to the server
-    await new Promise(resolve => setTimeout(resolve, 100))
+    // Small delay between batches
+    await new Promise(resolve => setTimeout(resolve, 50))
   }
   
   const totalCached = cached + skipped
