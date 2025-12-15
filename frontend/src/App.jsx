@@ -1206,9 +1206,13 @@ function ProductsTab() {
     
     if (!selectedBrand || !sourceProducts.length) return []
     
-    let filtered = sourceProducts.filter(p => 
-      p.brand?.toLowerCase().includes(selectedBrand.toLowerCase())
-    )
+    // Check both directions - product brand contains selected OR selected contains product brand
+    // This handles cases like "Ideas4Seasons" vs "Ideas 4 Seasons" and "Elvang Denmark" vs "Elvang"
+    const brandLower = selectedBrand.toLowerCase()
+    let filtered = sourceProducts.filter(p => {
+      const productBrand = p.brand?.toLowerCase() || ''
+      return productBrand.includes(brandLower) || brandLower.includes(productBrand)
+    })
     
     if (search) {
       const searchLower = search.toLowerCase()

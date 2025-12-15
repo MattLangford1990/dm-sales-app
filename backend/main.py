@@ -1592,20 +1592,75 @@ async def debug_image_info():
         return {"error": str(e), "traceback": traceback.format_exc()}
 
 
-# ============ Catalogues ============
+# ============ Catalogues (Database) ============
 
-# Catalogues stored as JSON with external URLs (Render has ephemeral filesystem)
-CATALOGUES_FILE = os.path.join(os.path.dirname(__file__), "catalogues.json")
+from database import SessionLocal, Catalogue as CatalogueModel
 
 def load_catalogues():
-    if os.path.exists(CATALOGUES_FILE):
-        with open(CATALOGUES_FILE, "r") as f:
-            return json.load(f).get("catalogues", [])
-    return []
+    """Load all catalogues from database"""
+    db = SessionLocal()
+    try:
+        catalogues = db.query(CatalogueModel).all()
+        return [
+            {
+                "id": cat.id,
+                "brand": cat.brand,
+                "name": cat.name,
+                "description": cat.description or "",
+                "url": cat.url,
+                "size_mb": cat.size_mb or 0,
+                "updated": cat.updated_at.strftime("%Y-%m-%d") if cat.updated_at else "",
+                "added_by": cat.added_by or ""
+            }
+            for cat in catalogues
+        ]
+    finally:
+        db.close()
 
-def save_catalogues(catalogues):
-    with open(CATALOGUES_FILE, "w") as f:
-        json.dump({"catalogues": catalogues}, f, indent=2)
+
+def save_catalogue(catalogue_data: dict):
+    """Save a catalogue to database"""
+    db = SessionLocal()
+    try:
+        cat = db.query(CatalogueModel).filter(CatalogueModel.id == catalogue_data["id"]).first()
+        if cat:
+            # Update existing
+            cat.brand = catalogue_data.get("brand", cat.brand)
+            cat.name = catalogue_data.get("name", cat.name)
+            cat.description = catalogue_data.get("description", cat.description)
+            cat.url = catalogue_data.get("url", cat.url)
+            cat.size_mb = catalogue_data.get("size_mb", cat.size_mb)
+            cat.added_by = catalogue_data.get("added_by", cat.added_by)
+        else:
+            # Create new
+            cat = CatalogueModel(
+                id=catalogue_data["id"],
+                brand=catalogue_data["brand"],
+                name=catalogue_data["name"],
+                description=catalogue_data.get("description", ""),
+                url=catalogue_data["url"],
+                size_mb=catalogue_data.get("size_mb", 0),
+                added_by=catalogue_data.get("added_by", "")
+            )
+            db.add(cat)
+        db.commit()
+        return cat.id
+    finally:
+        db.close()
+
+
+def delete_catalogue_from_db(catalogue_id: str) -> bool:
+    """Delete a catalogue from database"""
+    db = SessionLocal()
+    try:
+        cat = db.query(CatalogueModel).filter(CatalogueModel.id == catalogue_id).first()
+        if cat:
+            db.delete(cat)
+            db.commit()
+            return True
+        return False
+    finally:
+        db.close()
 
 
 @app.get("/api/catalogues")
@@ -1659,9 +1714,6 @@ async def admin_add_catalogue(
     safe_brand = catalogue.brand.lower().replace(" ", "-").replace("ä", "a").replace("ü", "u").replace("ö", "o")
     catalogue_id = f"{safe_brand}-{timestamp}"
     
-    # Load existing catalogues and add new one
-    catalogues = load_catalogues()
-    
     new_catalogue = {
         "id": catalogue_id,
         "brand": catalogue.brand,
@@ -1669,12 +1721,10 @@ async def admin_add_catalogue(
         "description": catalogue.description,
         "url": catalogue.url,
         "size_mb": catalogue.size_mb,
-        "updated": datetime.now().strftime("%Y-%m-%d"),
         "added_by": agent.agent_name
     }
     
-    catalogues.append(new_catalogue)
-    save_catalogues(catalogues)
+    save_catalogue(new_catalogue)
     
     return {
         "message": "Catalogue added successfully",
@@ -1689,25 +1739,21 @@ async def admin_update_catalogue(
     agent: TokenData = Depends(require_admin)
 ):
     """Update a catalogue (admin only)"""
+    catalogue_data = {
+        "id": catalogue_id,
+        "brand": updates.brand,
+        "name": updates.name,
+        "description": updates.description,
+        "url": updates.url,
+        "size_mb": updates.size_mb
+    }
+    
+    # Check if exists first
     catalogues = load_catalogues()
-    
-    # Find and update the catalogue
-    found = False
-    for cat in catalogues:
-        if cat.get("id") == catalogue_id:
-            cat["brand"] = updates.brand
-            cat["name"] = updates.name
-            cat["description"] = updates.description
-            cat["url"] = updates.url
-            cat["size_mb"] = updates.size_mb
-            cat["updated"] = datetime.now().strftime("%Y-%m-%d")
-            found = True
-            break
-    
-    if not found:
+    if not any(cat["id"] == catalogue_id for cat in catalogues):
         raise HTTPException(status_code=404, detail="Catalogue not found")
     
-    save_catalogues(catalogues)
+    save_catalogue(catalogue_data)
     return {"message": "Catalogue updated successfully"}
 
 
@@ -1717,15 +1763,9 @@ async def admin_delete_catalogue(
     agent: TokenData = Depends(require_admin)
 ):
     """Delete a catalogue (admin only)"""
-    catalogues = load_catalogues()
-    
-    # Find and remove the catalogue
-    new_catalogues = [cat for cat in catalogues if cat.get("id") != catalogue_id]
-    
-    if len(new_catalogues) == len(catalogues):
+    if not delete_catalogue_from_db(catalogue_id):
         raise HTTPException(status_code=404, detail="Catalogue not found")
     
-    save_catalogues(new_catalogues)
     return {"message": "Catalogue deleted successfully"}
 
 

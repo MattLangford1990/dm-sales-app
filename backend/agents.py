@@ -1,9 +1,6 @@
-# Agent configuration - maps agents to their accessible brands
-# Agents are now stored in agents_data.json for persistence
-
+# Agent configuration - uses PostgreSQL for persistence
 from typing import Optional, List, Dict
-import os
-import json
+from database import SessionLocal, Agent as AgentModel, init_db
 
 # Brand name mappings - Zoho uses these exact names
 BRAND_VARIATIONS = {
@@ -22,10 +19,7 @@ ALL_BRANDS = ["Remember", "Räder", "Relaxound", "My Flame", "Elvang Denmark", "
 # Agents who can view all orders and access admin panel
 ADMIN_AGENTS = ["sammie", "georgia", "matt"]
 
-# File to store agents
-AGENTS_FILE = os.path.join(os.path.dirname(__file__), "agents_data.json")
-
-# Default agents (used if no file exists)
+# Default agents - used to seed the database if empty
 DEFAULT_AGENTS = {
     "kate.ellis": {
         "name": "Kate Ellis",
@@ -90,34 +84,123 @@ DEFAULT_AGENTS = {
         "brands": ALL_BRANDS,
         "active": True
     },
+    "didi": {
+        "name": "Didi",
+        "pin": "1234",
+        "commission_rate": 0.125,
+        "brands": ALL_BRANDS,
+        "active": True
+    },
 }
 
-# ============ Agent Storage ============
+
+# ============ Database Seeding ============
+
+def seed_default_agents():
+    """Seed database with default agents if empty"""
+    db = SessionLocal()
+    try:
+        # Check if any agents exist
+        count = db.query(AgentModel).count()
+        if count == 0:
+            print("AGENTS: Seeding default agents...")
+            for agent_id, data in DEFAULT_AGENTS.items():
+                agent = AgentModel(
+                    id=agent_id,
+                    name=data["name"],
+                    pin=data["pin"],
+                    commission_rate=data.get("commission_rate", 0.125),
+                    brands=data.get("brands", []),
+                    active=data.get("active", True)
+                )
+                db.add(agent)
+            db.commit()
+            print(f"AGENTS: Seeded {len(DEFAULT_AGENTS)} default agents")
+        else:
+            print(f"AGENTS: Found {count} existing agents in database")
+    except Exception as e:
+        print(f"AGENTS: Seeding error: {e}")
+        db.rollback()
+    finally:
+        db.close()
+
+
+# Seed on import
+seed_default_agents()
+
+
+# ============ Agent Storage (Database) ============
 
 def load_agents() -> Dict:
-    """Load agents from file, or return defaults"""
-    if os.path.exists(AGENTS_FILE):
-        try:
-            with open(AGENTS_FILE, 'r') as f:
-                return json.load(f)
-        except:
-            pass
-    return DEFAULT_AGENTS.copy()
+    """Load all agents from database"""
+    db = SessionLocal()
+    try:
+        agents = db.query(AgentModel).all()
+        return {
+            agent.id: {
+                "name": agent.name,
+                "pin": agent.pin,
+                "commission_rate": agent.commission_rate,
+                "brands": agent.brands or [],
+                "active": agent.active
+            }
+            for agent in agents
+        }
+    finally:
+        db.close()
 
-def save_agents(agents: Dict):
-    """Save agents to file"""
-    with open(AGENTS_FILE, 'w') as f:
-        json.dump(agents, f, indent=2)
+
+def save_agent(agent_id: str, data: Dict):
+    """Save a single agent to database"""
+    db = SessionLocal()
+    try:
+        agent = db.query(AgentModel).filter(AgentModel.id == agent_id).first()
+        if agent:
+            # Update existing
+            agent.name = data.get("name", agent.name)
+            agent.pin = data.get("pin", agent.pin)
+            agent.commission_rate = data.get("commission_rate", agent.commission_rate)
+            agent.brands = data.get("brands", agent.brands)
+            agent.active = data.get("active", agent.active)
+        else:
+            # Create new
+            agent = AgentModel(
+                id=agent_id,
+                name=data["name"],
+                pin=data["pin"],
+                commission_rate=data.get("commission_rate", 0.125),
+                brands=data.get("brands", []),
+                active=data.get("active", True)
+            )
+            db.add(agent)
+        db.commit()
+    finally:
+        db.close()
+
+
+def delete_agent_from_db(agent_id: str):
+    """Delete an agent from database"""
+    db = SessionLocal()
+    try:
+        agent = db.query(AgentModel).filter(AgentModel.id == agent_id).first()
+        if agent:
+            db.delete(agent)
+            db.commit()
+    finally:
+        db.close()
+
 
 def get_agents() -> Dict:
     """Get all agents"""
     return load_agents()
+
 
 # ============ Agent Lookups ============
 
 def get_brand_patterns(brand_name: str) -> List[str]:
     """Get all variations/patterns for a brand name"""
     return BRAND_VARIATIONS.get(brand_name, [brand_name])
+
 
 def get_all_brand_patterns(brand_names: List[str]) -> List[str]:
     """Get all variations for a list of brands"""
@@ -126,15 +209,18 @@ def get_all_brand_patterns(brand_names: List[str]) -> List[str]:
         patterns.extend(get_brand_patterns(brand))
     return patterns
 
+
 def get_agent(agent_id: str) -> Optional[Dict]:
     """Get agent configuration by ID"""
     agents = load_agents()
     return agents.get(agent_id.lower())
 
+
 def get_agent_brands(agent_id: str) -> List[str]:
     """Get list of brands an agent can access"""
     agent = get_agent(agent_id)
     return agent["brands"] if agent else []
+
 
 def verify_agent_pin(agent_id: str, pin: str) -> bool:
     """Verify agent PIN"""
@@ -146,6 +232,7 @@ def verify_agent_pin(agent_id: str, pin: str) -> bool:
         return False
     return agent["pin"] == pin
 
+
 def list_agents() -> List[Dict]:
     """List all agents (without PINs)"""
     agents = load_agents()
@@ -155,9 +242,11 @@ def list_agents() -> List[Dict]:
         if agent.get("active", True)
     ]
 
+
 def is_admin(agent_id: str) -> bool:
     """Check if agent has admin privileges"""
     return agent_id.lower() in ADMIN_AGENTS
+
 
 # ============ Admin Functions ============
 
@@ -176,6 +265,7 @@ def list_all_agents_admin() -> List[Dict]:
         for agent_id, agent in agents.items()
     ]
 
+
 def create_agent(agent_id: str, name: str, pin: str, brands: List[str], commission_rate: float = 0.125) -> Dict:
     """Create a new agent"""
     agents = load_agents()
@@ -184,7 +274,7 @@ def create_agent(agent_id: str, name: str, pin: str, brands: List[str], commissi
     if agent_id in agents:
         raise ValueError(f"Agent {agent_id} already exists")
     
-    agents[agent_id] = {
+    agent_data = {
         "name": name,
         "pin": pin,
         "commission_rate": commission_rate,
@@ -192,8 +282,9 @@ def create_agent(agent_id: str, name: str, pin: str, brands: List[str], commissi
         "active": True
     }
     
-    save_agents(agents)
-    return agents[agent_id]
+    save_agent(agent_id, agent_data)
+    return agent_data
+
 
 def update_agent(agent_id: str, updates: Dict) -> Dict:
     """Update an existing agent"""
@@ -203,20 +294,22 @@ def update_agent(agent_id: str, updates: Dict) -> Dict:
     if agent_id not in agents:
         raise ValueError(f"Agent {agent_id} not found")
     
-    # Update allowed fields
+    # Merge updates with existing data
+    agent_data = agents[agent_id].copy()
     if "name" in updates:
-        agents[agent_id]["name"] = updates["name"]
+        agent_data["name"] = updates["name"]
     if "pin" in updates:
-        agents[agent_id]["pin"] = updates["pin"]
+        agent_data["pin"] = updates["pin"]
     if "brands" in updates:
-        agents[agent_id]["brands"] = updates["brands"]
+        agent_data["brands"] = updates["brands"]
     if "commission_rate" in updates:
-        agents[agent_id]["commission_rate"] = updates["commission_rate"]
+        agent_data["commission_rate"] = updates["commission_rate"]
     if "active" in updates:
-        agents[agent_id]["active"] = updates["active"]
+        agent_data["active"] = updates["active"]
     
-    save_agents(agents)
-    return agents[agent_id]
+    save_agent(agent_id, agent_data)
+    return agent_data
+
 
 def delete_agent(agent_id: str) -> bool:
     """Delete an agent (or deactivate if admin)"""
@@ -228,12 +321,14 @@ def delete_agent(agent_id: str) -> bool:
     
     # Don't allow deleting admin accounts, just deactivate
     if agent_id in ADMIN_AGENTS:
-        agents[agent_id]["active"] = False
+        agent_data = agents[agent_id].copy()
+        agent_data["active"] = False
+        save_agent(agent_id, agent_data)
     else:
-        del agents[agent_id]
+        delete_agent_from_db(agent_id)
     
-    save_agents(agents)
     return True
+
 
 def get_all_brands() -> List[str]:
     """Get list of all available brands"""
