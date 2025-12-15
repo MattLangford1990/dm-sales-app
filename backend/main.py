@@ -1825,6 +1825,55 @@ async def admin_generate_feed(agent: TokenData = Depends(require_admin)):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@app.post("/api/cron/generate-feed")
+async def cron_generate_feed(secret: str = None):
+    """
+    Cron endpoint to generate product feed.
+    Protected by CRON_SECRET environment variable.
+    
+    Call with: POST /api/cron/generate-feed?secret=YOUR_CRON_SECRET
+    """
+    # Verify cron secret
+    if not settings.cron_secret:
+        raise HTTPException(status_code=500, detail="CRON_SECRET not configured")
+    
+    if secret != settings.cron_secret:
+        raise HTTPException(status_code=401, detail="Invalid cron secret")
+    
+    import subprocess
+    import sys
+    
+    script_path = os.path.join(os.path.dirname(__file__), "scripts", "generate_product_feed.py")
+    
+    if not os.path.exists(script_path):
+        raise HTTPException(status_code=500, detail="Feed generator script not found")
+    
+    try:
+        result = subprocess.run(
+            [sys.executable, script_path],
+            capture_output=True,
+            text=True,
+            timeout=300,
+            cwd=os.path.dirname(script_path)
+        )
+        
+        if result.returncode != 0:
+            return {
+                "success": False,
+                "error": result.stderr[-500:] if len(result.stderr) > 500 else result.stderr
+            }
+        
+        return {
+            "success": True,
+            "message": "Feed generated successfully",
+            "timestamp": datetime.utcnow().isoformat()
+        }
+    except subprocess.TimeoutExpired:
+        raise HTTPException(status_code=500, detail="Feed generation timed out")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 # ============ Health Check ============
 
 @app.get("/api/health")

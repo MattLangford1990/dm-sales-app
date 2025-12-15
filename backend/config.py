@@ -19,6 +19,9 @@ class Settings(BaseSettings):
     algorithm: str = "HS256"
     access_token_expire_minutes: int = 480
     
+    # Cron job secret (for automated feed generation)
+    cron_secret: str = ""
+    
     # App
     debug: bool = False
     
