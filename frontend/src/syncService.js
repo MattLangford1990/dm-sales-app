@@ -26,8 +26,10 @@ async function apiRequest(endpoint, options = {}) {
   return response.json()
 }
 
-// Static product feed URL (Cloudinary CDN) - updated every 4 hours
-const PRODUCT_FEED_URL = 'https://res.cloudinary.com/dcfbgveei/raw/upload/feeds/products.json'
+// Static product feed URL - served from backend, updated every 4 hours
+const PRODUCT_FEED_URL = isNativeApp 
+  ? 'https://appdmbrands.com/static/feeds/products.json'
+  : '/static/feeds/products.json'
 
 // Download all products for offline use
 // Uses static CDN feed (fast, no API calls) with fallback to live API
