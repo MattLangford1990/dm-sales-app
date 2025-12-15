@@ -384,9 +384,11 @@ function OfflineProvider({ children }) {
   const [isSyncing, setIsSyncing] = useState(false)
   const stockIntervalRef = useRef(null)
   
-  // In-memory customer cache for instant search
+  // In-memory caches for instant access
   const [customerCache, setCustomerCache] = useState([])
   const [customerCacheLoaded, setCustomerCacheLoaded] = useState(false)
+  const [productCache, setProductCache] = useState([]) // All products in memory
+  const [productCacheLoaded, setProductCacheLoaded] = useState(false)
   
   const refreshSyncStatus = async () => {
     const status = await syncService.getSyncStatus()
@@ -403,6 +405,19 @@ function OfflineProvider({ children }) {
       console.log('Customer cache loaded:', customers.length, 'customers')
     } catch (err) {
       console.error('Failed to load customer cache:', err)
+    }
+  }
+  
+  // Load ALL products into memory for instant filtering
+  const loadProductCache = async () => {
+    try {
+      const products = await offlineStore.getProducts({})
+      setProductCache(products)
+      setProductCacheLoaded(true)
+      console.log('Product cache loaded:', products.length, 'products')
+    } catch (err) {
+      console.error('Failed to load product cache:', err)
+      setProductCacheLoaded(true) // Mark as loaded even on error
     }
   }
   
@@ -428,8 +443,9 @@ function OfflineProvider({ children }) {
     // Load sync status on mount
     refreshSyncStatus()
     
-    // Load customer cache on mount
+    // Load caches on mount
     loadCustomerCache()
+    loadProductCache()
     
     return () => {
       window.removeEventListener('online', handleOnline)
@@ -474,8 +490,9 @@ function OfflineProvider({ children }) {
       // includeImages: false - images load on-demand to save API calls
       await syncService.fullSync({ includeImages: false }, onProgress)
       await refreshSyncStatus()
-      // Refresh customer cache after sync
+      // Refresh caches after sync
       await loadCustomerCache()
+      await loadProductCache()
     } finally {
       setIsSyncing(false)
     }
@@ -509,7 +526,10 @@ function OfflineProvider({ children }) {
       refreshSyncStatus,
       customerCache,
       customerCacheLoaded,
-      refreshCustomerCache: loadCustomerCache
+      refreshCustomerCache: loadCustomerCache,
+      productCache,
+      productCacheLoaded,
+      refreshProductCache: loadProductCache
     }}>
       {children}
     </OfflineContext.Provider>
@@ -659,17 +679,17 @@ function ProductDetailModal({ product, onClose, onAddToCart, germanStockInfo }) 
       const validExtras = []
       
       // Check variant images one by one (SKU_1, SKU_2, etc.)
-      for (let i = 1; i <= 5; i++) {
+      // Don't break on missing - images may have gaps in numbering
+      for (let i = 1; i <= 10; i++) {
         const url = getCloudinaryUrl(`${product.sku}_${i}`, 'medium')
         try {
           const response = await fetch(url, { method: 'HEAD' })
           if (response.ok) {
             validExtras.push(url)
-          } else {
-            break // Stop checking once we hit a missing image
           }
+          // Continue checking even if this one is missing
         } catch (e) {
-          break
+          // Continue on error
         }
       }
       
@@ -1161,28 +1181,70 @@ const ITEMS_PER_PAGE = 8
 
 function ProductsTab() {
   const [selectedBrand, setSelectedBrand] = useState(null)
-  const [allProducts, setAllProducts] = useState([]) // All loaded products
-  const [visibleCount, setVisibleCount] = useState(ITEMS_PER_PAGE) // How many to show
-  const [loading, setLoading] = useState(false)
+  const [visibleCount, setVisibleCount] = useState(ITEMS_PER_PAGE)
   const [search, setSearch] = useState('')
-  const [usingOffline, setUsingOffline] = useState(false)
   const [selectedProduct, setSelectedProduct] = useState(null)
-  const [prefetchedImages, setPrefetchedImages] = useState(new Set()) // Track prefetched images
+  const [prefetchedImages, setPrefetchedImages] = useState(new Set())
   const [viewMode, setViewMode] = useState(() => {
-    // Persist view preference
     return localStorage.getItem('productsViewMode') || 'grid'
   })
-  const [germanStock, setGermanStock] = useState(null) // German warehouse stock data
+  const [germanStock, setGermanStock] = useState(null)
+  const [freshProducts, setFreshProducts] = useState(null) // Fresh data from API
   const { cart, addToCart, updateQuantity } = useCart()
   const { agent } = useAuth()
-  const { isOnline } = useOffline()
+  const { isOnline, productCache, productCacheLoaded } = useOffline()
   const { addToast } = useToast()
   const observerRef = useRef(null)
   const loadMoreRef = useRef(null)
   
-  // Products currently visible
-  const products = allProducts.slice(0, visibleCount)
-  const hasMore = visibleCount < allProducts.length
+  // INSTANT filtering from in-memory cache using useMemo
+  const filteredProducts = useMemo(() => {
+    // Use fresh API data if available, otherwise use cache
+    const sourceProducts = freshProducts || productCache
+    
+    if (!selectedBrand || !sourceProducts.length) return []
+    
+    let filtered = sourceProducts.filter(p => 
+      p.brand?.toLowerCase().includes(selectedBrand.toLowerCase())
+    )
+    
+    if (search) {
+      const searchLower = search.toLowerCase()
+      filtered = filtered.filter(p =>
+        p.name?.toLowerCase().includes(searchLower) ||
+        p.sku?.toLowerCase().includes(searchLower) ||
+        p.ean?.toLowerCase().includes(searchLower)
+      )
+    }
+    
+    return filtered
+  }, [selectedBrand, search, productCache, freshProducts])
+  
+  // Products currently visible (for infinite scroll)
+  const products = filteredProducts.slice(0, visibleCount)
+  const hasMore = visibleCount < filteredProducts.length
+  const usingOffline = !freshProducts && productCache.length > 0
+  
+  // Reset visible count when brand/search changes
+  useEffect(() => {
+    setVisibleCount(ITEMS_PER_PAGE)
+    setPrefetchedImages(new Set())
+  }, [selectedBrand, search])
+  
+  // Background refresh from API when brand selected
+  useEffect(() => {
+    if (selectedBrand && isOnline) {
+      apiRequest(`/products?page=1&limit=2000&brand=${encodeURIComponent(selectedBrand)}`)
+        .then(data => {
+          if (data.products?.length > 0) {
+            setFreshProducts(data.products)
+          }
+        })
+        .catch(err => console.log('Background refresh failed:', err))
+    }
+    // Clear fresh products when brand changes
+    setFreshProducts(null)
+  }, [selectedBrand, isOnline])
   
   // Save view mode preference
   useEffect(() => {
@@ -1255,17 +1317,16 @@ function ProductsTab() {
   
   // When visible products change, prefetch next 2 pages
   useEffect(() => {
-    if (allProducts.length > 0 && viewMode === 'grid') {
+    if (filteredProducts.length > 0 && viewMode === 'grid') {
       const nextStart = visibleCount
-      const nextEnd = Math.min(visibleCount + (ITEMS_PER_PAGE * 2), allProducts.length)
-      const nextProducts = allProducts.slice(nextStart, nextEnd)
+      const nextEnd = Math.min(visibleCount + (ITEMS_PER_PAGE * 2), filteredProducts.length)
+      const nextProducts = filteredProducts.slice(nextStart, nextEnd)
       if (nextProducts.length > 0) {
-        // Delay prefetch slightly to prioritize visible images
         const timer = setTimeout(() => prefetchImages(nextProducts), 500)
         return () => clearTimeout(timer)
       }
     }
-  }, [visibleCount, allProducts, viewMode, prefetchImages])
+  }, [visibleCount, filteredProducts, viewMode, prefetchImages])
   
   // Intersection Observer for infinite scroll
   useEffect(() => {
@@ -1273,8 +1334,8 @@ function ProductsTab() {
     
     observerRef.current = new IntersectionObserver(
       (entries) => {
-        if (entries[0].isIntersecting && hasMore && !loading) {
-          setVisibleCount(prev => Math.min(prev + ITEMS_PER_PAGE, allProducts.length))
+        if (entries[0].isIntersecting && hasMore) {
+          setVisibleCount(prev => Math.min(prev + ITEMS_PER_PAGE, filteredProducts.length))
         }
       },
       { threshold: 0.1, rootMargin: '100px' }
@@ -1287,51 +1348,7 @@ function ProductsTab() {
     return () => {
       if (observerRef.current) observerRef.current.disconnect()
     }
-  }, [hasMore, loading, allProducts.length])
-  
-  const loadProducts = async () => {
-    setLoading(true)
-    setVisibleCount(ITEMS_PER_PAGE) // Reset to first page
-    setPrefetchedImages(new Set()) // Clear prefetch cache
-    
-    // Try online first, fall back to offline
-    if (isOnline) {
-      try {
-        const params = new URLSearchParams({ page: 1, limit: 2000 }) // Load all at once
-        if (search) params.append('search', search)
-        if (selectedBrand) params.append('brand', selectedBrand)
-        
-        const data = await apiRequest(`/products?${params}`)
-        
-        setAllProducts(data.products || [])
-        setUsingOffline(false)
-        setLoading(false)
-        return
-      } catch (err) {
-        console.log('Online fetch failed, trying offline:', err)
-      }
-    }
-    
-    // Use offline data
-    try {
-      const offlineProducts = await offlineStore.getProducts({
-        brand: selectedBrand,
-        search: search
-      })
-      setAllProducts(offlineProducts)
-      setUsingOffline(true)
-    } catch (err) {
-      console.error('Failed to load offline products:', err)
-      setAllProducts([])
-    }
-    setLoading(false)
-  }
-  
-  useEffect(() => {
-    if (selectedBrand) {
-      loadProducts()
-    }
-  }, [search, selectedBrand, isOnline])
+  }, [hasMore, filteredProducts.length])
   
   // Show brand selector first
   if (!selectedBrand) {
@@ -1424,13 +1441,13 @@ function ProductsTab() {
       </div>
       
       <div className="flex-1 overflow-y-auto p-4">
-        {loading && products.length === 0 ? (
+        {!productCacheLoaded && products.length === 0 ? (
           <LoadingSpinner />
         ) : products.length === 0 ? (
           <div className="flex flex-col items-center justify-center h-full text-gray-500">
             <span className="text-5xl mb-4">📦</span>
             <p className="text-center">No products found</p>
-            {!isOnline && (
+            {!isOnline && productCache.length === 0 && (
               <p className="text-sm text-orange-600 mt-2">Sync data in Settings for offline access</p>
             )}
           </div>
@@ -1650,9 +1667,9 @@ function ProductsTab() {
         )}
         
         {/* Show total count */}
-        {!loading && allProducts.length > 0 && (
+        {filteredProducts.length > 0 && (
           <div className="text-center text-sm text-gray-500 py-4">
-            Showing {products.length} of {allProducts.length} products
+            Showing {products.length} of {filteredProducts.length} products
           </div>
         )}
       </div>
