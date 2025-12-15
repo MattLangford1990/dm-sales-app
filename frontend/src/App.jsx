@@ -2689,6 +2689,7 @@ function AdminTab() {
   const [editingAgent, setEditingAgent] = useState(null)
   const [showNewAgent, setShowNewAgent] = useState(false)
   const [showUploadCatalogue, setShowUploadCatalogue] = useState(false)
+  const [imageSync, setImageSync] = useState({ running: false, result: null })
   const { addToast } = useToast()
   
   const loadData = async () => {
@@ -2779,6 +2780,25 @@ function AdminTab() {
     }
   }
   
+  const handleSyncImagesToCloudinary = async (dryRun = true) => {
+    setImageSync({ running: true, result: null })
+    try {
+      const result = await apiRequest('/admin/sync-images-to-cloudinary', {
+        method: 'POST',
+        body: JSON.stringify({ dry_run: dryRun })
+      })
+      setImageSync({ running: false, result })
+      if (dryRun) {
+        addToast(`Found ${result.missing_in_cloudinary} images to sync`, 'info')
+      } else {
+        addToast(`Uploaded ${result.uploaded} images to Cloudinary`, 'success')
+      }
+    } catch (err) {
+      setImageSync({ running: false, result: null })
+      addToast('Sync failed: ' + err.message, 'error')
+    }
+  }
+  
   if (loading) {
     return (
       <div className="flex items-center justify-center h-full">
@@ -2825,6 +2845,50 @@ function AdminTab() {
           </div>
         </div>
       )}
+      
+      {/* Image Sync Section */}
+      <div className="bg-white rounded-xl p-4 border border-gray-200">
+        <h3 className="font-semibold mb-3">🖼️ Sync Zoho → Cloudinary</h3>
+        <p className="text-sm text-gray-600 mb-3">
+          Uploads missing product images from Zoho to Cloudinary CDN for faster loading.
+        </p>
+        
+        <div className="flex gap-2">
+          <button
+            onClick={() => handleSyncImagesToCloudinary(true)}
+            disabled={imageSync.running}
+            className="flex-1 py-2 bg-blue-100 text-blue-700 rounded-lg font-medium hover:bg-blue-200 disabled:opacity-50 transition"
+          >
+            {imageSync.running ? 'Checking...' : 'Check Missing'}
+          </button>
+          <button
+            onClick={() => handleSyncImagesToCloudinary(false)}
+            disabled={imageSync.running}
+            className="flex-1 py-2 bg-green-600 text-white rounded-lg font-medium hover:bg-green-700 disabled:opacity-50 transition"
+          >
+            {imageSync.running ? 'Syncing...' : 'Sync Now'}
+          </button>
+        </div>
+        
+        {imageSync.result && (
+          <div className="mt-3 p-3 bg-gray-50 rounded-lg text-sm">
+            <div className="grid grid-cols-2 gap-2">
+              <div>Total products: <span className="font-medium">{imageSync.result.total_products}</span></div>
+              <div>In Cloudinary: <span className="font-medium text-green-600">{imageSync.result.already_in_cloudinary}</span></div>
+              <div>Missing: <span className="font-medium text-orange-600">{imageSync.result.missing_in_cloudinary}</span></div>
+              {!imageSync.result.dry_run && (
+                <div>Uploaded: <span className="font-medium text-blue-600">{imageSync.result.uploaded}</span></div>
+              )}
+            </div>
+            {imageSync.result.missing_skus?.length > 0 && (
+              <div className="mt-2 text-xs text-gray-500">
+                Sample missing: {imageSync.result.missing_skus.slice(0, 5).join(', ')}
+                {imageSync.result.missing_skus.length > 5 && '...'}
+              </div>
+            )}
+          </div>
+        )}
+      </div>
       
       {/* Agents List */}
       <div className="bg-white rounded-xl border border-gray-200">
