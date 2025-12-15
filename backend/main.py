@@ -1773,7 +1773,8 @@ async def admin_delete_catalogue(
 
 # Cloudinary CDN URL for pre-generated product feed
 # Updated every 4 hours via cron job (scripts/generate_product_feed.py)
-PRODUCT_FEED_URL = f"https://res.cloudinary.com/{settings.cloudinary_cloud_name}/raw/upload/feeds/products.json"
+# Falls back to /static/feeds/products.json if served locally
+PRODUCT_FEED_URL = "/static/feeds/products.json"
 
 
 @app.get("/api/products/feed-url")
