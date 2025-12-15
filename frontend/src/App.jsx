@@ -1231,7 +1231,7 @@ function ProductsTab() {
     // Try online first, fall back to offline
     if (isOnline) {
       try {
-        const params = new URLSearchParams({ page: 1, limit: 500 }) // Load all at once
+        const params = new URLSearchParams({ page: 1, limit: 2000 }) // Load all at once
         if (search) params.append('search', search)
         if (selectedBrand) params.append('brand', selectedBrand)
         
@@ -1275,17 +1275,25 @@ function ProductsTab() {
           <h2 className="text-lg font-semibold text-gray-800">Select a Brand</h2>
         </div>
         <div className="flex-1 overflow-y-auto p-4">
-          <div className="grid grid-cols-2 gap-4">
-            {agent?.brands?.map(brand => (
-              <button
-                key={brand}
-                onClick={() => setSelectedBrand(brand)}
-                className="bg-white border-2 border-gray-200 rounded-xl p-6 text-center hover:border-primary-500 hover:bg-primary-50 transition active:scale-95"
-              >
-                <span className="font-semibold text-gray-800">{brand}</span>
-              </button>
-            ))}
-          </div>
+          {agent?.brands?.length > 0 ? (
+            <div className="grid grid-cols-2 gap-4">
+              {agent.brands.map(brand => (
+                <button
+                  key={brand}
+                  onClick={() => setSelectedBrand(brand)}
+                  className="bg-white border-2 border-gray-200 rounded-xl p-6 text-center hover:border-primary-500 hover:bg-primary-50 transition active:scale-95"
+                >
+                  <span className="font-semibold text-gray-800">{brand}</span>
+                </button>
+              ))}
+            </div>
+          ) : (
+            <div className="flex flex-col items-center justify-center h-full text-gray-500">
+              <span className="text-5xl mb-4">📦</span>
+              <p>No brands assigned to your account</p>
+              <p className="text-sm mt-2">Please contact admin</p>
+            </div>
+          )}
         </div>
       </div>
     )

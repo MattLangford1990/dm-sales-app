@@ -786,6 +786,7 @@ async def sync_customers(
 @app.get("/api/products")
 async def get_products(
     page: int = 1,
+    limit: int = 500,
     search: Optional[str] = None,
     brand: Optional[str] = None,
     agent: TokenData = Depends(get_current_agent)
@@ -816,8 +817,8 @@ async def get_products(
         # Sort by SKU alphabetically
         items.sort(key=lambda x: (x.get("sku") or "").upper())
         
-        # Paginate
-        per_page = 30
+        # Paginate - use limit param (default 500 to get all)
+        per_page = min(limit, 2000)  # Cap at 2000 max
         start = (page - 1) * per_page
         end = start + per_page
         has_more = end < len(items)
