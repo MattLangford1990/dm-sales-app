@@ -1206,12 +1206,34 @@ function ProductsTab() {
     
     if (!selectedBrand || !sourceProducts.length) return []
     
-    // Check both directions - product brand contains selected OR selected contains product brand
-    // This handles cases like "Ideas4Seasons" vs "Ideas 4 Seasons" and "Elvang Denmark" vs "Elvang"
-    const brandLower = selectedBrand.toLowerCase()
+    // Normalize brand names for comparison - remove spaces, lowercase, extract key words
+    const normalizeForMatch = (str) => {
+      if (!str) return ''
+      return str.toLowerCase()
+        .replace(/\s+/g, '') // Remove all spaces
+        .replace(/gmbh|ltd|inc|llc/gi, '') // Remove company suffixes
+    }
+    
+    // Also extract first meaningful word for partial matching
+    const getKeyWord = (str) => {
+      if (!str) return ''
+      // Get first word that's not a common prefix
+      const words = str.toLowerCase().split(/\s+/).filter(w => w.length > 2)
+      return words[0] || ''
+    }
+    
+    const selectedNorm = normalizeForMatch(selectedBrand)
+    const selectedKey = getKeyWord(selectedBrand)
+    
     let filtered = sourceProducts.filter(p => {
-      const productBrand = p.brand?.toLowerCase() || ''
-      return productBrand.includes(brandLower) || brandLower.includes(productBrand)
+      const productBrand = p.brand || ''
+      const productNorm = normalizeForMatch(productBrand)
+      const productKey = getKeyWord(productBrand)
+      
+      // Match if normalized versions contain each other OR key words match
+      return productNorm.includes(selectedNorm) || 
+             selectedNorm.includes(productNorm) ||
+             (selectedKey && productKey && (productKey.includes(selectedKey) || selectedKey.includes(productKey)))
     })
     
     if (search) {
