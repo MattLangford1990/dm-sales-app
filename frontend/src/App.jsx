@@ -2791,10 +2791,12 @@ function AdminTab() {
   const handleSyncImagesToCloudinary = async (dryRun = true) => {
     setImageSync({ running: true, result: null })
     try {
+      console.log('Starting Cloudinary sync, dry_run:', dryRun)
       const result = await apiRequest('/admin/sync-images-to-cloudinary', {
         method: 'POST',
         body: JSON.stringify({ dry_run: dryRun })
       })
+      console.log('Sync result:', result)
       setImageSync({ running: false, result })
       if (dryRun) {
         addToast(`Found ${result.missing_in_cloudinary} images to sync`, 'info')
@@ -2802,7 +2804,8 @@ function AdminTab() {
         addToast(`Uploaded ${result.uploaded} images to Cloudinary`, 'success')
       }
     } catch (err) {
-      setImageSync({ running: false, result: null })
+      console.error('Cloudinary sync error:', err)
+      setImageSync({ running: false, result: { error: err.message } })
       addToast('Sync failed: ' + err.message, 'error')
     }
   }
@@ -2879,20 +2882,28 @@ function AdminTab() {
         </div>
         
         {imageSync.result && (
-          <div className="mt-3 p-3 bg-gray-50 rounded-lg text-sm">
-            <div className="grid grid-cols-2 gap-2">
-              <div>Total products: <span className="font-medium">{imageSync.result.total_products}</span></div>
-              <div>In Cloudinary: <span className="font-medium text-green-600">{imageSync.result.already_in_cloudinary}</span></div>
-              <div>Missing: <span className="font-medium text-orange-600">{imageSync.result.missing_in_cloudinary}</span></div>
-              {!imageSync.result.dry_run && (
-                <div>Uploaded: <span className="font-medium text-blue-600">{imageSync.result.uploaded}</span></div>
-              )}
-            </div>
-            {imageSync.result.missing_skus?.length > 0 && (
-              <div className="mt-2 text-xs text-gray-500">
-                Sample missing: {imageSync.result.missing_skus.slice(0, 5).join(', ')}
-                {imageSync.result.missing_skus.length > 5 && '...'}
+          <div className={`mt-3 p-3 rounded-lg text-sm ${imageSync.result.error ? 'bg-red-50' : 'bg-gray-50'}`}>
+            {imageSync.result.error ? (
+              <div className="text-red-600">
+                <strong>Error:</strong> {imageSync.result.error}
               </div>
+            ) : (
+              <>
+                <div className="grid grid-cols-2 gap-2">
+                  <div>Total products: <span className="font-medium">{imageSync.result.total_products}</span></div>
+                  <div>In Cloudinary: <span className="font-medium text-green-600">{imageSync.result.already_in_cloudinary}</span></div>
+                  <div>Missing: <span className="font-medium text-orange-600">{imageSync.result.missing_in_cloudinary}</span></div>
+                  {!imageSync.result.dry_run && (
+                    <div>Uploaded: <span className="font-medium text-blue-600">{imageSync.result.uploaded}</span></div>
+                  )}
+                </div>
+                {imageSync.result.missing_skus?.length > 0 && (
+                  <div className="mt-2 text-xs text-gray-500">
+                    Sample missing: {imageSync.result.missing_skus.slice(0, 5).join(', ')}
+                    {imageSync.result.missing_skus.length > 5 && '...'}
+                  </div>
+                )}
+              </>
             )}
           </div>
         )}
