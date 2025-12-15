@@ -23,6 +23,18 @@ function useDebounce(value, delay = 300) {
 const isNativeApp = window.Capacitor?.isNativePlatform?.() || false
 const API_BASE = isNativeApp ? 'https://appdmbrands.com/api' : '/api'
 
+// Cloudinary image helper - LOW RES for sales app (fast mobile loading)
+const CLOUDINARY_BASE = 'https://res.cloudinary.com/dcfbgveei/image/upload'
+const getCloudinaryUrl = (sku, size = 'small') => {
+  if (!sku) return null
+  const transforms = {
+    small: 'w_300,q_60,f_auto',    // Product cards in app
+    medium: 'w_400,q_70,f_auto',   // Product detail modal
+    thumb: 'w_80,q_60,f_auto',     // Cart thumbnails
+  }
+  return `${CLOUDINARY_BASE}/${transforms[size] || transforms.small}/products/${sku}.jpg`
+}
+
 async function apiRequest(endpoint, options = {}) {
   const token = localStorage.getItem('token')
   const headers = {
@@ -495,119 +507,12 @@ function LoadingSpinner() {
   )
 }
 
-// Offline-aware image component - checks IndexedDB cache first, fetches from API if needed
-// Each image only fetched ONCE, then cached forever in IndexedDB
-function OfflineImage({ itemId, imageUrl, alt, className, fallbackIcon = '📦' }) {
-  const [imageSrc, setImageSrc] = useState(null)
-  const [loading, setLoading] = useState(true)
+// Simple image component using Cloudinary CDN
+// Much faster than fetching from API - images served directly from CDN
+function OfflineImage({ sku, alt, className, fallbackIcon = '📦', size = 'small' }) {
   const [failed, setFailed] = useState(false)
   
-  useEffect(() => {
-    if (!itemId) {
-      console.log('OfflineImage: No itemId provided')
-      setLoading(false)
-      setFailed(true)
-      return
-    }
-    
-    let mounted = true
-    setLoading(true)
-    setFailed(false)
-    setImageSrc(null)
-    
-    const loadImage = async () => {
-      console.log('OfflineImage: Loading image for', itemId, 'online:', navigator.onLine)
-      
-      // 1. Check IndexedDB cache first (no API call)
-      try {
-        const cachedImage = await offlineStore.getImage(itemId)
-        console.log('OfflineImage: Cache check for', itemId, '- found:', !!cachedImage, cachedImage ? `(${cachedImage.substring(0, 50)}...)` : '')
-        if (mounted && cachedImage) {
-          setImageSrc(cachedImage)
-          setLoading(false)
-          return
-        }
-      } catch (err) {
-        console.error('OfflineImage: Cache check failed for', itemId, err)
-        // Cache check failed, continue to fetch
-      }
-      
-      // 2. Not in cache - fetch from API (only happens once per image)
-      if (!navigator.onLine) {
-        // Offline and not cached - show fallback
-        console.log('OfflineImage: Offline and not cached for', itemId)
-        if (mounted) {
-          setLoading(false)
-          setFailed(true)
-        }
-        return
-      }
-      
-      try {
-        const token = localStorage.getItem('token')
-        console.log('OfflineImage: Fetching from API for', itemId)
-        const response = await fetch(`${API_BASE}/products/${itemId}/image`, {
-          headers: token ? { 'Authorization': `Bearer ${token}` } : {}
-        })
-        
-        if (response.ok) {
-          const blob = await response.blob()
-          console.log('OfflineImage: Got blob for', itemId, '- size:', blob.size, 'type:', blob.type)
-          if (blob.size > 100) {
-            // Save to IndexedDB for future use (never fetch again!)
-            try {
-              await offlineStore.saveImage(itemId, blob)
-              console.log('OfflineImage: Saved to cache for', itemId)
-            } catch (cacheErr) {
-              console.warn('OfflineImage: Failed to cache image:', cacheErr)
-            }
-            // Convert to base64 for display
-            const reader = new FileReader()
-            reader.onloadend = () => {
-              if (mounted) {
-                setImageSrc(reader.result)
-                setLoading(false)
-              }
-            }
-            reader.onerror = () => {
-              if (mounted) {
-                setLoading(false)
-                setFailed(true)
-              }
-            }
-            reader.readAsDataURL(blob)
-            return
-          }
-        }
-        // No image or failed
-        console.log('OfflineImage: No image or failed for', itemId)
-        if (mounted) {
-          setLoading(false)
-          setFailed(true)
-        }
-      } catch (err) {
-        console.error('OfflineImage: Fetch error for', itemId, err)
-        if (mounted) {
-          setLoading(false)
-          setFailed(true)
-        }
-      }
-    }
-    
-    loadImage()
-    
-    return () => { mounted = false }
-  }, [itemId])
-  
-  if (loading) {
-    return (
-      <div className={`flex items-center justify-center bg-gray-100 ${className}`}>
-        <div className="w-6 h-6 border-2 border-gray-300 border-t-gray-600 rounded-full animate-spin"></div>
-      </div>
-    )
-  }
-  
-  if (failed || !imageSrc) {
+  if (!sku || failed) {
     return (
       <div className={`flex items-center justify-center bg-gray-100 ${className}`}>
         <span className="text-4xl">{fallbackIcon}</span>
@@ -615,14 +520,28 @@ function OfflineImage({ itemId, imageUrl, alt, className, fallbackIcon = '📦' 
     )
   }
   
+  const imageUrl = getCloudinaryUrl(sku, size)
+  
   return (
     <img
-      src={imageSrc}
+      src={imageUrl}
       alt={alt}
       className={className}
       onError={() => setFailed(true)}
+      loading="lazy"
     />
   )
+}
+
+// Helper to get all possible image URLs for a product (main + variants)
+const getProductImageUrls = (sku, size = 'medium') => {
+  if (!sku) return []
+  const urls = [getCloudinaryUrl(sku, size)] // Main image first
+  // Add potential variant images (SKU_1, SKU_2, etc.)
+  for (let i = 1; i <= 5; i++) {
+    urls.push(getCloudinaryUrl(`${sku}_${i}`, size))
+  }
+  return urls
 }
 
 // Helper to format restock date for display
@@ -633,7 +552,53 @@ function formatRestockDate(dateStr) {
 }
 
 function ProductDetailModal({ product, onClose, onAddToCart, germanStockInfo }) {
+  const [validImages, setValidImages] = useState([])
+  const [activeIndex, setActiveIndex] = useState(0)
+  const [loading, setLoading] = useState(true)
+  
+  // Check which images exist for this product
+  useEffect(() => {
+    if (!product?.sku) return
+    
+    const checkImages = async () => {
+      setLoading(true)
+      const potentialUrls = getProductImageUrls(product.sku, 'medium')
+      
+      // Check each URL in parallel
+      const checks = potentialUrls.map(async (url, index) => {
+        try {
+          const response = await fetch(url, { method: 'HEAD' })
+          if (response.ok) {
+            return { url, index }
+          }
+        } catch (e) {
+          // Image doesn't exist
+        }
+        return null
+      })
+      
+      const results = await Promise.all(checks)
+      const validResults = results.filter(r => r !== null).sort((a, b) => a.index - b.index)
+      
+      setValidImages(validResults.map(r => r.url))
+      setActiveIndex(0)
+      setLoading(false)
+    }
+    
+    checkImages()
+  }, [product?.sku])
+  
   if (!product) return null
+  
+  const handlePrev = (e) => {
+    e.stopPropagation()
+    setActiveIndex(i => (i > 0 ? i - 1 : validImages.length - 1))
+  }
+  
+  const handleNext = (e) => {
+    e.stopPropagation()
+    setActiveIndex(i => (i < validImages.length - 1 ? i + 1 : 0))
+  }
   
   return (
     <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4" onClick={onClose}>
@@ -645,15 +610,67 @@ function ProductDetailModal({ product, onClose, onAddToCart, germanStockInfo }) 
           >
             ×
           </button>
-          <div className="aspect-square bg-gray-100">
-            <OfflineImage
-              itemId={product.item_id}
-              imageUrl={product.image_url}
-              alt={product.name}
-              className="w-full h-full object-contain"
-              fallbackIcon="📦"
-            />
+          
+          {/* Main Image */}
+          <div className="aspect-square bg-gray-100 relative">
+            {loading ? (
+              <div className="w-full h-full flex items-center justify-center">
+                <div className="w-8 h-8 border-4 border-gray-300 border-t-primary-600 rounded-full animate-spin"></div>
+              </div>
+            ) : validImages.length > 0 ? (
+              <>
+                <img
+                  src={validImages[activeIndex]}
+                  alt={product.name}
+                  className="w-full h-full object-contain"
+                />
+                
+                {/* Navigation arrows if multiple images */}
+                {validImages.length > 1 && (
+                  <>
+                    <button
+                      onClick={handlePrev}
+                      className="absolute left-2 top-1/2 -translate-y-1/2 bg-white/90 rounded-full w-10 h-10 flex items-center justify-center text-xl shadow hover:bg-white transition"
+                    >
+                      ‹
+                    </button>
+                    <button
+                      onClick={handleNext}
+                      className="absolute right-2 top-1/2 -translate-y-1/2 bg-white/90 rounded-full w-10 h-10 flex items-center justify-center text-xl shadow hover:bg-white transition"
+                    >
+                      ›
+                    </button>
+                    
+                    {/* Image counter */}
+                    <div className="absolute bottom-3 left-1/2 -translate-x-1/2 bg-black/60 text-white text-sm px-3 py-1 rounded-full">
+                      {activeIndex + 1} / {validImages.length}
+                    </div>
+                  </>
+                )}
+              </>
+            ) : (
+              <div className="w-full h-full flex items-center justify-center">
+                <span className="text-6xl">📦</span>
+              </div>
+            )}
           </div>
+          
+          {/* Thumbnail strip if multiple images */}
+          {validImages.length > 1 && (
+            <div className="flex gap-2 p-2 bg-gray-50 overflow-x-auto">
+              {validImages.map((url, idx) => (
+                <button
+                  key={idx}
+                  onClick={() => setActiveIndex(idx)}
+                  className={`flex-shrink-0 w-16 h-16 rounded-lg overflow-hidden border-2 transition ${
+                    idx === activeIndex ? 'border-primary-500' : 'border-transparent'
+                  }`}
+                >
+                  <img src={url} alt={`View ${idx + 1}`} className="w-full h-full object-cover" />
+                </button>
+              ))}
+            </div>
+          )}
         </div>
         
         <div className="p-4 space-y-3">
