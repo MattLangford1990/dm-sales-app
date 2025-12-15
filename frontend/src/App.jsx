@@ -1191,6 +1191,7 @@ function ProductsTab() {
   })
   const [germanStock, setGermanStock] = useState(null)
   const [freshProducts, setFreshProducts] = useState(null) // Fresh data from API
+  const [isFetchingProducts, setIsFetchingProducts] = useState(false) // Track API loading state
   const { cart, addToCart, updateQuantity } = useCart()
   const { agent } = useAuth()
   const { isOnline, productCache, productCacheLoaded } = useOffline()
@@ -1235,6 +1236,7 @@ function ProductsTab() {
   // Background refresh from API when brand selected
   useEffect(() => {
     if (selectedBrand && isOnline) {
+      setIsFetchingProducts(true)
       apiRequest(`/products?page=1&limit=2000&brand=${encodeURIComponent(selectedBrand)}`)
         .then(data => {
           if (data.products?.length > 0) {
@@ -1242,6 +1244,7 @@ function ProductsTab() {
           }
         })
         .catch(err => console.log('Background refresh failed:', err))
+        .finally(() => setIsFetchingProducts(false))
     }
     // Clear fresh products when brand changes
     setFreshProducts(null)
@@ -1442,8 +1445,11 @@ function ProductsTab() {
       </div>
       
       <div className="flex-1 overflow-y-auto p-4">
-        {!productCacheLoaded && products.length === 0 ? (
-          <LoadingSpinner />
+        {(!productCacheLoaded || isFetchingProducts) && products.length === 0 ? (
+          <div className="flex flex-col items-center justify-center h-full text-gray-500">
+            <div className="w-8 h-8 border-4 border-primary-200 border-t-primary-600 rounded-full animate-spin mb-4"></div>
+            <p className="text-center">Loading products, please wait...</p>
+          </div>
         ) : products.length === 0 ? (
           <div className="flex flex-col items-center justify-center h-full text-gray-500">
             <span className="text-5xl mb-4">📦</span>
