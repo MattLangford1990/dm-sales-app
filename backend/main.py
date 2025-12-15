@@ -1854,6 +1854,8 @@ async def cron_generate_feed(secret: str = None):
     Protected by CRON_SECRET environment variable.
     
     Call with: POST /api/cron/generate-feed?secret=YOUR_CRON_SECRET
+    
+    Returns immediately and runs feed generation in background.
     """
     # Verify cron secret
     if not settings.cron_secret:
@@ -1871,27 +1873,21 @@ async def cron_generate_feed(secret: str = None):
         raise HTTPException(status_code=500, detail="Feed generator script not found")
     
     try:
-        result = subprocess.run(
+        # Fire and forget - start process in background and return immediately
+        # This allows cron services with short timeouts (like cron-job.org's 30s) to work
+        subprocess.Popen(
             [sys.executable, script_path],
-            capture_output=True,
-            text=True,
-            timeout=300,
-            cwd=os.path.dirname(script_path)
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            cwd=os.path.dirname(script_path),
+            start_new_session=True  # Detach from parent process
         )
-        
-        if result.returncode != 0:
-            return {
-                "success": False,
-                "error": result.stderr[-500:] if len(result.stderr) > 500 else result.stderr
-            }
         
         return {
             "success": True,
-            "message": "Feed generated successfully",
+            "message": "Feed generation started in background",
             "timestamp": datetime.utcnow().isoformat()
         }
-    except subprocess.TimeoutExpired:
-        raise HTTPException(status_code=500, detail="Feed generation timed out")
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
