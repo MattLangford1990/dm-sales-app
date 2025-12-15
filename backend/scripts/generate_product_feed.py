@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
 """
-Generate static product feed JSON.
+Generate static product feed JSON and store in database.
 Run via cron every 4 hours to keep products up to date.
 
 Usage:
   python generate_product_feed.py
 
 Output:
-  - Saves products.json to backend/static/feeds/products.json
-  - Served at /static/feeds/products.json
+  - Saves feed to PostgreSQL database (product_feeds table)
+  - Also saves local copy to static/feeds/products.json for debugging
 """
 
 import asyncio
@@ -22,6 +22,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import httpx
 from config import get_settings
+from database import SessionLocal, ProductFeed
 
 settings = get_settings()
 
@@ -97,6 +98,38 @@ def transform_product(item, pack_quantities):
     }
 
 
+def save_to_database(feed_json: str, total_products: int):
+    """Save feed to database"""
+    db = SessionLocal()
+    try:
+        # Get or create the feed record
+        feed = db.query(ProductFeed).filter(ProductFeed.id == "main").first()
+        
+        if feed:
+            feed.feed_json = feed_json
+            feed.total_products = total_products
+            feed.generated_at = datetime.utcnow()
+            feed.updated_at = datetime.utcnow()
+        else:
+            feed = ProductFeed(
+                id="main",
+                feed_json=feed_json,
+                total_products=total_products,
+                generated_at=datetime.utcnow()
+            )
+            db.add(feed)
+        
+        db.commit()
+        print(f"   Saved to database: {total_products} products")
+        return True
+    except Exception as e:
+        print(f"   ERROR saving to database: {e}")
+        db.rollback()
+        return False
+    finally:
+        db.close()
+
+
 async def main():
     print(f"\n{'='*60}")
     print(f"PRODUCT FEED GENERATOR - {datetime.now().isoformat()}")
@@ -137,21 +170,24 @@ async def main():
     size_kb = len(json_data) / 1024
     print(f"   Feed size: {size_kb:.1f} KB")
     
-    # Save to static/feeds directory
-    print("\n3. Saving feed file...")
+    # Save to database
+    print("\n3. Saving to database...")
+    save_to_database(json_data, len(products))
+    
+    # Also save locally for debugging
+    print("\n4. Saving local copy...")
     feeds_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "static", "feeds")
     os.makedirs(feeds_dir, exist_ok=True)
     
     feed_file = os.path.join(feeds_dir, "products.json")
     with open(feed_file, "w") as f:
         f.write(json_data)
-    print(f"   Saved: {feed_file}")
+    print(f"   Local copy: {feed_file}")
     
     print(f"\n{'='*60}")
     print("FEED GENERATION COMPLETE")
     print(f"  Products: {len(products)}")
     print(f"  Size: {size_kb:.1f} KB")
-    print(f"  File: {feed_file}")
     print(f"{'='*60}\n")
     
     return feed_file

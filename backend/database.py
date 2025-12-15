@@ -55,6 +55,17 @@ class Catalogue(Base):
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
 
+class ProductFeed(Base):
+    """Stores the pre-generated product feed JSON for fast sync"""
+    __tablename__ = "product_feeds"
+    
+    id = Column(String, primary_key=True, default="main")  # Only one feed, always "main"
+    feed_json = Column(Text, nullable=False)  # Compressed JSON string
+    total_products = Column(Float, default=0)
+    generated_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
 # ============ Database Initialization ============
 
 def init_db():

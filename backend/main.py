@@ -1771,17 +1771,39 @@ async def admin_delete_catalogue(
 
 # ============ Static Product Feed ============
 
-# Cloudinary CDN URL for pre-generated product feed
-# Updated every 4 hours via cron job (scripts/generate_product_feed.py)
-# Falls back to /static/feeds/products.json if served locally
-PRODUCT_FEED_URL = "/static/feeds/products.json"
+from database import SessionLocal, ProductFeed
+
+
+@app.get("/api/products/feed")
+async def get_product_feed():
+    """
+    Get the static product feed JSON from database.
+    This is the main endpoint for fast sync - returns pre-generated product data.
+    """
+    db = SessionLocal()
+    try:
+        feed = db.query(ProductFeed).filter(ProductFeed.id == "main").first()
+        
+        if feed and feed.feed_json:
+            # Parse the stored JSON
+            return json.loads(feed.feed_json)
+        else:
+            # Feed not generated yet
+            return {
+                "generated_at": None,
+                "total_products": 0,
+                "products": [],
+                "message": "Feed not yet generated. Run /api/cron/generate-feed to create it."
+            }
+    finally:
+        db.close()
 
 
 @app.get("/api/products/feed-url")
 async def get_product_feed_url():
-    """Get URL for static product feed (Cloudinary CDN)"""
+    """Get URL for static product feed"""
     return {
-        "url": PRODUCT_FEED_URL,
+        "url": "/api/products/feed",
         "description": "Static product feed, updated every 4 hours"
     }
 

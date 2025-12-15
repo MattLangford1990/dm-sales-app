@@ -26,10 +26,10 @@ async function apiRequest(endpoint, options = {}) {
   return response.json()
 }
 
-// Static product feed URL - served from backend, updated every 4 hours
+// Static product feed URL - served from API, updated every 4 hours
 const PRODUCT_FEED_URL = isNativeApp 
-  ? 'https://appdmbrands.com/static/feeds/products.json'
-  : '/static/feeds/products.json'
+  ? 'https://appdmbrands.com/api/products/feed'
+  : '/api/products/feed'
 
 // Download all products for offline use
 // Uses static CDN feed (fast, no API calls) with fallback to live API
