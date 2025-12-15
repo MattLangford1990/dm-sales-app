@@ -81,27 +81,19 @@ function AuthProvider({ children }) {
   const inactivityTimerRef = useRef(null)
   const logoutRef = useRef(null)
   
-  // Logout function - clears all cache and session
-  const performLogout = useCallback(async () => {
+  // Logout function - just clears session, keeps cache
+  const performLogout = useCallback(() => {
     // Clear inactivity timer
     if (inactivityTimerRef.current) {
       clearTimeout(inactivityTimerRef.current)
     }
     
-    // Clear localStorage
+    // Clear session only (keep cache for offline use)
     localStorage.removeItem('token')
     localStorage.removeItem('agent')
     localStorage.removeItem('isAdmin')
     localStorage.removeItem('cart')
     localStorage.removeItem('selectedCustomer')
-    
-    // Clear IndexedDB cache
-    try {
-      await offlineStore.clearAllData()
-      console.log('Cleared offline cache on logout')
-    } catch (err) {
-      console.error('Failed to clear offline cache:', err)
-    }
     
     setAgent(null)
     setIsAdmin(false)
@@ -3694,6 +3686,32 @@ function SettingsTab() {
           className="w-full mt-4 py-3 bg-gray-200 text-gray-800 rounded-lg font-semibold"
         >
           Log Out
+        </button>
+      </div>
+      
+      {/* Clear Cache */}
+      <div className="bg-red-50 rounded-lg border border-red-200 p-4">
+        <h3 className="font-semibold text-lg mb-2 text-red-800">🗑️ Clear Cache</h3>
+        <p className="text-sm text-red-700 mb-3">
+          Clears all cached products, customers, and images. You'll need to sync again after restarting.
+        </p>
+        <button
+          onClick={async () => {
+            if (confirm('Clear all cached data and restart the app?')) {
+              try {
+                await offlineStore.clearAllData()
+                addToast('Cache cleared, restarting...', 'success')
+                setTimeout(() => {
+                  window.location.reload()
+                }, 500)
+              } catch (err) {
+                addToast('Failed to clear cache: ' + err.message, 'error')
+              }
+            }
+          }}
+          className="w-full py-3 bg-red-600 text-white rounded-lg font-semibold hover:bg-red-700 transition"
+        >
+          Clear Cache & Restart
         </button>
       </div>
       
