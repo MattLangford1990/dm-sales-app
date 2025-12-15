@@ -1748,6 +1748,130 @@ async def debug_pack_qty(sku: str):
     }
 
 
+# ============ Image Manifest (Cloudinary) ============
+
+# Cache for image manifest - stores which SKUs have multiple images
+_image_manifest_cache = {
+    "data": {},  # SKU -> list of image suffixes e.g. {"SKU123": ["", "_1", "_2"], "SKU456": [""]}
+    "updated_at": None
+}
+_IMAGE_MANIFEST_CACHE_HOURS = 6  # Refresh every 6 hours
+
+
+@app.get("/api/images/manifest")
+async def get_image_manifest():
+    """
+    Get manifest of all product images in Cloudinary.
+    Returns SKU -> list of available image suffixes.
+    Cached for 6 hours to avoid hammering Cloudinary API.
+    """
+    import httpx
+    
+    # Check cache
+    if _image_manifest_cache["updated_at"]:
+        cache_age = datetime.utcnow() - _image_manifest_cache["updated_at"]
+        if cache_age < timedelta(hours=_IMAGE_MANIFEST_CACHE_HOURS):
+            return {
+                "manifest": _image_manifest_cache["data"],
+                "cached_at": _image_manifest_cache["updated_at"].isoformat(),
+                "from_cache": True
+            }
+    
+    # Need to refresh - query Cloudinary Admin API
+    if not settings.cloudinary_cloud_name or not settings.cloudinary_api_key:
+        return {"manifest": {}, "error": "Cloudinary not configured"}
+    
+    try:
+        manifest = {}
+        next_cursor = None
+        
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            # Paginate through all resources in products folder
+            while True:
+                url = f"https://api.cloudinary.com/v1_1/{settings.cloudinary_cloud_name}/resources/image"
+                params = {
+                    "type": "upload",
+                    "prefix": "products/",
+                    "max_results": 500
+                }
+                if next_cursor:
+                    params["next_cursor"] = next_cursor
+                
+                response = await client.get(
+                    url,
+                    params=params,
+                    auth=(settings.cloudinary_api_key, settings.cloudinary_api_secret)
+                )
+                
+                if response.status_code != 200:
+                    print(f"Cloudinary API error: {response.status_code} - {response.text}")
+                    break
+                
+                data = response.json()
+                resources = data.get("resources", [])
+                
+                for resource in resources:
+                    # public_id is like "products/SKU123" or "products/SKU123_1"
+                    public_id = resource.get("public_id", "")
+                    if public_id.startswith("products/"):
+                        filename = public_id[9:]  # Remove "products/" prefix
+                        
+                        # Parse SKU and suffix
+                        # e.g. "SKU123" -> SKU="SKU123", suffix=""
+                        # e.g. "SKU123_1" -> SKU="SKU123", suffix="_1"
+                        if "_" in filename and filename.split("_")[-1].isdigit():
+                            parts = filename.rsplit("_", 1)
+                            sku = parts[0]
+                            suffix = f"_{parts[1]}"
+                        else:
+                            sku = filename
+                            suffix = ""
+                        
+                        if sku not in manifest:
+                            manifest[sku] = []
+                        if suffix not in manifest[sku]:
+                            manifest[sku].append(suffix)
+                
+                # Check for more pages
+                next_cursor = data.get("next_cursor")
+                if not next_cursor:
+                    break
+        
+        # Sort suffixes for each SKU
+        for sku in manifest:
+            manifest[sku].sort()
+        
+        # Update cache
+        _image_manifest_cache["data"] = manifest
+        _image_manifest_cache["updated_at"] = datetime.utcnow()
+        
+        return {
+            "manifest": manifest,
+            "total_skus": len(manifest),
+            "skus_with_multiple": len([s for s in manifest if len(manifest[s]) > 1]),
+            "cached_at": _image_manifest_cache["updated_at"].isoformat(),
+            "from_cache": False
+        }
+        
+    except Exception as e:
+        print(f"IMAGE MANIFEST ERROR: {e}")
+        import traceback
+        traceback.print_exc()
+        return {"manifest": {}, "error": str(e)}
+
+
+@app.post("/api/admin/refresh-image-manifest")
+async def admin_refresh_image_manifest(agent: TokenData = Depends(require_admin)):
+    """Force refresh of the image manifest cache (admin only)"""
+    _image_manifest_cache["updated_at"] = None  # Clear cache
+    result = await get_image_manifest()
+    return {
+        "message": "Image manifest refreshed",
+        "total_skus": result.get("total_skus", 0),
+        "skus_with_multiple": result.get("skus_with_multiple", 0)
+    }
+
+
 # ============ German Stock ============
 
 # Load German stock data

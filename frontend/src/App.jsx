@@ -389,6 +389,7 @@ function OfflineProvider({ children }) {
   const [customerCacheLoaded, setCustomerCacheLoaded] = useState(false)
   const [productCache, setProductCache] = useState([]) // All products in memory
   const [productCacheLoaded, setProductCacheLoaded] = useState(false)
+  const [imageManifest, setImageManifest] = useState({}) // SKU -> list of image suffixes
   
   const refreshSyncStatus = async () => {
     const status = await syncService.getSyncStatus()
@@ -421,6 +422,20 @@ function OfflineProvider({ children }) {
     }
   }
   
+  // Load image manifest from backend (cached for 6 hours server-side)
+  const loadImageManifest = async () => {
+    if (!navigator.onLine) return
+    try {
+      const data = await apiRequest('/images/manifest')
+      if (data.manifest) {
+        setImageManifest(data.manifest)
+        console.log('Image manifest loaded:', Object.keys(data.manifest).length, 'SKUs')
+      }
+    } catch (err) {
+      console.error('Failed to load image manifest:', err)
+    }
+  }
+  
   // Auto-sync when coming back online
   useEffect(() => {
     const handleOnline = async () => {
@@ -446,6 +461,7 @@ function OfflineProvider({ children }) {
     // Load caches on mount
     loadCustomerCache()
     loadProductCache()
+    loadImageManifest()
     
     return () => {
       window.removeEventListener('online', handleOnline)
@@ -529,7 +545,8 @@ function OfflineProvider({ children }) {
       refreshCustomerCache: loadCustomerCache,
       productCache,
       productCacheLoaded,
-      refreshProductCache: loadProductCache
+      refreshProductCache: loadProductCache,
+      imageManifest
     }}>
       {children}
     </OfflineContext.Provider>
@@ -664,6 +681,7 @@ function ProductDetailModal({ product, onClose, onAddToCart, germanStockInfo }) 
   const [extraImages, setExtraImages] = useState([]) // Additional images beyond main
   const [activeIndex, setActiveIndex] = useState(0)
   const [mainImageFailed, setMainImageFailed] = useState(false)
+  const { imageManifest } = useOffline()
   
   // Main image URL - show immediately
   const mainImageUrl = product?.sku ? getCloudinaryUrl(product.sku, 'medium') : null
@@ -671,37 +689,20 @@ function ProductDetailModal({ product, onClose, onAddToCart, germanStockInfo }) 
   // All valid images (main + extras)
   const allImages = mainImageUrl && !mainImageFailed ? [mainImageUrl, ...extraImages] : extraImages
   
-  // Lazy-load extra images in background after modal opens
+  // Use image manifest for instant lookup - no HEAD requests needed!
   useEffect(() => {
     if (!product?.sku) return
     
-    const checkExtraImages = async () => {
-      const validExtras = []
-      
-      // Check variant images one by one (SKU_1, SKU_2, etc.)
-      // Don't break on missing - images may have gaps in numbering
-      for (let i = 1; i <= 10; i++) {
-        const url = getCloudinaryUrl(`${product.sku}_${i}`, 'medium')
-        try {
-          const response = await fetch(url, { method: 'HEAD' })
-          if (response.ok) {
-            validExtras.push(url)
-          }
-          // Continue checking even if this one is missing
-        } catch (e) {
-          // Continue on error
-        }
-      }
-      
-      if (validExtras.length > 0) {
-        setExtraImages(validExtras)
-      }
-    }
+    // Check manifest for this SKU's images
+    const suffixes = imageManifest[product.sku] || []
     
-    // Small delay to prioritize main image loading
-    const timer = setTimeout(checkExtraImages, 300)
-    return () => clearTimeout(timer)
-  }, [product?.sku])
+    // Filter to only numbered suffixes (_1, _2, etc.) and build URLs
+    const validExtras = suffixes
+      .filter(suffix => suffix.match(/^_\d+$/)) // Only _1, _2, etc.
+      .map(suffix => getCloudinaryUrl(`${product.sku}${suffix}`, 'medium'))
+    
+    setExtraImages(validExtras)
+  }, [product?.sku, imageManifest])
   
   // Reset state when product changes
   useEffect(() => {
