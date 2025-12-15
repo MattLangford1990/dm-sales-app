@@ -76,6 +76,84 @@ function AuthProvider({ children }) {
     return saved === 'true'
   })
   
+  // Inactivity timeout (15 minutes)
+  const INACTIVITY_TIMEOUT = 15 * 60 * 1000
+  const inactivityTimerRef = useRef(null)
+  const logoutRef = useRef(null)
+  
+  // Logout function - clears all cache and session
+  const performLogout = useCallback(async () => {
+    // Clear inactivity timer
+    if (inactivityTimerRef.current) {
+      clearTimeout(inactivityTimerRef.current)
+    }
+    
+    // Clear localStorage
+    localStorage.removeItem('token')
+    localStorage.removeItem('agent')
+    localStorage.removeItem('isAdmin')
+    localStorage.removeItem('cart')
+    localStorage.removeItem('selectedCustomer')
+    
+    // Clear IndexedDB cache
+    try {
+      await offlineStore.clearAllData()
+      console.log('Cleared offline cache on logout')
+    } catch (err) {
+      console.error('Failed to clear offline cache:', err)
+    }
+    
+    setAgent(null)
+    setIsAdmin(false)
+  }, [])
+  
+  // Keep ref updated
+  logoutRef.current = performLogout
+  
+  // Reset inactivity timer on user activity
+  const resetInactivityTimer = useCallback(() => {
+    if (inactivityTimerRef.current) {
+      clearTimeout(inactivityTimerRef.current)
+    }
+    
+    // Only set timer if logged in
+    if (localStorage.getItem('agent')) {
+      inactivityTimerRef.current = setTimeout(() => {
+        console.log('Auto-logout due to inactivity')
+        if (logoutRef.current) logoutRef.current()
+      }, INACTIVITY_TIMEOUT)
+    }
+  }, [INACTIVITY_TIMEOUT])
+  
+  // Setup activity listeners
+  useEffect(() => {
+    const activityEvents = ['mousedown', 'mousemove', 'keydown', 'scroll', 'touchstart', 'click']
+    
+    const handleActivity = () => {
+      resetInactivityTimer()
+    }
+    
+    // Add listeners
+    activityEvents.forEach(event => {
+      document.addEventListener(event, handleActivity, { passive: true })
+    })
+    
+    // Start initial timer if logged in
+    if (agent) {
+      resetInactivityTimer()
+    }
+    
+    return () => {
+      // Cleanup
+      activityEvents.forEach(event => {
+        document.removeEventListener(event, handleActivity)
+      })
+      if (inactivityTimerRef.current) {
+        clearTimeout(inactivityTimerRef.current)
+      }
+    }
+  }, [agent, resetInactivityTimer])
+  
   // Check admin status on mount if logged in
   useEffect(() => {
     if (agent && navigator.onLine) {
@@ -159,11 +237,7 @@ function AuthProvider({ children }) {
   }
   
   const logout = () => {
-    localStorage.removeItem('token')
-    localStorage.removeItem('agent')
-    localStorage.removeItem('isAdmin')
-    setAgent(null)
-    setIsAdmin(false)
+    performLogout()
   }
   
   return (
