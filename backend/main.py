@@ -1411,6 +1411,266 @@ async def export_quote(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+# ============ Quote PDF Export ============
+
+class QuotePDFItem(BaseModel):
+    item_id: str
+    name: str
+    sku: str
+    ean: Optional[str] = None
+    rate: float
+    quantity: int
+    discount: float = 0
+
+class QuotePDFRequest(BaseModel):
+    items: List[QuotePDFItem]
+    customer_name: Optional[str] = None
+    customer_email: Optional[str] = None
+    include_images: bool = True
+    doc_type: str = "quote"  # "quote" or "order"
+
+@app.post("/api/export/quote-pdf")
+async def export_quote_pdf(
+    request: QuotePDFRequest,
+    agent: TokenData = Depends(get_current_agent)
+):
+    """Generate a PDF quote from cart items with product images"""
+    try:
+        import httpx
+        from reportlab.lib import colors
+        from reportlab.lib.pagesizes import A4
+        from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+        from reportlab.lib.units import mm
+        from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer, Image as RLImage, KeepTogether
+        from reportlab.lib.enums import TA_CENTER, TA_RIGHT, TA_LEFT
+        from PIL import Image
+        
+        # Create PDF buffer
+        buffer = io.BytesIO()
+        doc = SimpleDocTemplate(
+            buffer, 
+            pagesize=A4, 
+            topMargin=15*mm, 
+            bottomMargin=15*mm,
+            leftMargin=12*mm,
+            rightMargin=12*mm
+        )
+        
+        # Page dimensions
+        page_width = A4[0] - 24*mm  # Width minus margins
+        
+        styles = getSampleStyleSheet()
+        title_style = ParagraphStyle('Title', parent=styles['Heading1'], fontSize=20, alignment=TA_CENTER, spaceAfter=2*mm)
+        subtitle_style = ParagraphStyle('Subtitle', parent=styles['Normal'], fontSize=10, alignment=TA_CENTER, textColor=colors.grey)
+        header_style = ParagraphStyle('Header', parent=styles['Heading2'], fontSize=14, spaceAfter=4*mm)
+        normal_style = styles['Normal']
+        cell_style = ParagraphStyle('Cell', parent=styles['Normal'], fontSize=9, leading=11)
+        cell_style_small = ParagraphStyle('CellSmall', parent=styles['Normal'], fontSize=8, leading=10, textColor=colors.grey)
+        
+        elements = []
+        
+        # Header - dynamic based on doc_type
+        doc_title = "Order Confirmation" if request.doc_type == "order" else "Product Quotation"
+        elements.append(Paragraph("DM Brands Ltd", title_style))
+        elements.append(Paragraph(doc_title, subtitle_style))
+        elements.append(Spacer(1, 6*mm))
+        
+        # Quote info
+        date_str = datetime.now().strftime("%d %B %Y")
+        info_data = []
+        if request.customer_name:
+            info_data.append([Paragraph("<b>Customer:</b>", normal_style), Paragraph(request.customer_name, normal_style)])
+        info_data.append([Paragraph("<b>Date:</b>", normal_style), Paragraph(date_str, normal_style)])
+        info_data.append([Paragraph("<b>Prepared by:</b>", normal_style), Paragraph(agent.agent_name, normal_style)])
+        if request.doc_type == "quote":
+            info_data.append([Paragraph("<b>Valid for:</b>", normal_style), Paragraph("30 days", normal_style)])
+        
+        if info_data:
+            info_table = Table(info_data, colWidths=[70, page_width - 70])
+            info_table.setStyle(TableStyle([
+                ('VALIGN', (0, 0), (-1, -1), 'TOP'),
+                ('BOTTOMPADDING', (0, 0), (-1, -1), 3),
+            ]))
+            elements.append(info_table)
+            elements.append(Spacer(1, 6*mm))
+        
+        # Fetch images from Cloudinary if requested
+        image_cache = {}
+        if request.include_images:
+            cloudinary_base = f"https://res.cloudinary.com/{settings.cloudinary_cloud_name}/image/upload"
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                for item in request.items:
+                    if item.sku:
+                        # Convert SKU for Cloudinary (dots to underscores for My Flame)
+                        cloudinary_sku = item.sku.replace('.', '_')
+                        img_url = f"{cloudinary_base}/w_120,h_120,c_pad,b_white,q_80/products/{cloudinary_sku}.jpg"
+                        try:
+                            response = await client.get(img_url)
+                            if response.status_code == 200:
+                                image_cache[item.sku] = response.content
+                        except:
+                            pass  # Skip failed images
+        
+        # Build product rows - each product is a mini-table row
+        # Column widths: Image (25mm), Details (flex), Qty (18mm), Price (22mm), Total (25mm)
+        if request.include_images:
+            col_widths = [25*mm, page_width - 25*mm - 18*mm - 22*mm - 25*mm, 18*mm, 22*mm, 25*mm]
+        else:
+            col_widths = [page_width - 18*mm - 22*mm - 25*mm, 18*mm, 22*mm, 25*mm]
+        
+        # Header row
+        header_fill = colors.HexColor('#1e3a5f')
+        header_text = colors.white
+        
+        if request.include_images:
+            header_row = [
+                Paragraph("<font color='white'><b>Image</b></font>", cell_style),
+                Paragraph("<font color='white'><b>Product Details</b></font>", cell_style),
+                Paragraph("<font color='white'><b>Qty</b></font>", cell_style),
+                Paragraph("<font color='white'><b>Price</b></font>", cell_style),
+                Paragraph("<font color='white'><b>Total</b></font>", cell_style),
+            ]
+        else:
+            header_row = [
+                Paragraph("<font color='white'><b>Product Details</b></font>", cell_style),
+                Paragraph("<font color='white'><b>Qty</b></font>", cell_style),
+                Paragraph("<font color='white'><b>Price</b></font>", cell_style),
+                Paragraph("<font color='white'><b>Total</b></font>", cell_style),
+            ]
+        
+        table_data = [header_row]
+        grand_total = 0
+        
+        for item in request.items:
+            line_total = item.rate * item.quantity
+            if item.discount > 0:
+                line_total = line_total * (1 - item.discount / 100)
+            grand_total += line_total
+            
+            # Product details cell
+            details_parts = [f"<b>{item.name}</b>"]
+            details_parts.append(f"<font size='8' color='grey'>SKU: {item.sku}</font>")
+            if item.ean:
+                details_parts.append(f"<font size='8' color='grey'>EAN: {item.ean}</font>")
+            if item.discount > 0:
+                details_parts.append(f"<font size='8' color='#c00'>Discount: {item.discount:.0f}%</font>")
+            
+            details_cell = Paragraph("<br/>".join(details_parts), cell_style)
+            
+            # Price display
+            price_text = f"£{item.rate:.2f}"
+            total_text = f"£{line_total:.2f}"
+            
+            if request.include_images:
+                # Image cell
+                if item.sku in image_cache:
+                    try:
+                        img_data = io.BytesIO(image_cache[item.sku])
+                        img = RLImage(img_data, width=22*mm, height=22*mm)
+                        img_cell = img
+                    except:
+                        img_cell = ""
+                else:
+                    img_cell = ""
+                
+                row = [
+                    img_cell,
+                    details_cell,
+                    Paragraph(str(item.quantity), cell_style),
+                    Paragraph(price_text, cell_style),
+                    Paragraph(f"<b>{total_text}</b>", cell_style),
+                ]
+            else:
+                row = [
+                    details_cell,
+                    Paragraph(str(item.quantity), cell_style),
+                    Paragraph(price_text, cell_style),
+                    Paragraph(f"<b>{total_text}</b>", cell_style),
+                ]
+            
+            table_data.append(row)
+        
+        # Create main table
+        main_table = Table(table_data, colWidths=col_widths, repeatRows=1)
+        
+        # Table styling
+        num_rows = len(table_data)
+        style_commands = [
+            # Header
+            ('BACKGROUND', (0, 0), (-1, 0), header_fill),
+            ('TEXTCOLOR', (0, 0), (-1, 0), header_text),
+            
+            # All cells
+            ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+            ('TOPPADDING', (0, 0), (-1, -1), 6),
+            ('BOTTOMPADDING', (0, 0), (-1, -1), 6),
+            ('LEFTPADDING', (0, 0), (-1, -1), 4),
+            ('RIGHTPADDING', (0, 0), (-1, -1), 4),
+            
+            # Alignment
+            ('ALIGN', (-3, 1), (-3, -1), 'CENTER'),  # Qty
+            ('ALIGN', (-2, 0), (-1, -1), 'RIGHT'),   # Prices
+            
+            # Grid
+            ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor('#e0e0e0')),
+            ('LINEBELOW', (0, 0), (-1, 0), 1, header_fill),
+        ]
+        
+        # Alternating row colors
+        for i in range(2, num_rows, 2):
+            style_commands.append(('BACKGROUND', (0, i), (-1, i), colors.HexColor('#f8f9fa')))
+        
+        main_table.setStyle(TableStyle(style_commands))
+        elements.append(main_table)
+        
+        # Totals section
+        elements.append(Spacer(1, 4*mm))
+        
+        total_col_offset = 3 if request.include_images else 2
+        totals_data = [
+            ["", "", Paragraph("<b>Subtotal (ex VAT):</b>", cell_style), Paragraph(f"<b>£{grand_total:.2f}</b>", cell_style)],
+        ]
+        
+        totals_table = Table(totals_data, colWidths=[page_width - 70 - 80, 10, 70, 80])
+        totals_table.setStyle(TableStyle([
+            ('ALIGN', (-2, 0), (-1, -1), 'RIGHT'),
+            ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+            ('TOPPADDING', (0, 0), (-1, -1), 4),
+        ]))
+        elements.append(totals_table)
+        
+        # Footer
+        elements.append(Spacer(1, 10*mm))
+        footer_style = ParagraphStyle('Footer', parent=styles['Normal'], fontSize=9, textColor=colors.grey, alignment=TA_CENTER)
+        elements.append(Paragraph("All prices exclude VAT. E&OE.", footer_style))
+        elements.append(Paragraph("DM Brands Ltd | sales@dmbrands.co.uk | www.dmbrands.co.uk", footer_style))
+        
+        # Build PDF
+        doc.build(elements)
+        buffer.seek(0)
+        
+        # Generate filename
+        date_str = datetime.now().strftime("%Y%m%d")
+        customer_part = request.customer_name.replace(' ', '_')[:20] if request.customer_name else 'Customer'
+        doc_prefix = "Order" if request.doc_type == "order" else "Quote"
+        filename = f"{doc_prefix}_{customer_part}_{date_str}.pdf"
+        
+        return StreamingResponse(
+            buffer,
+            media_type="application/pdf",
+            headers={
+                "Content-Disposition": f"attachment; filename={filename}",
+                "X-Filename": filename  # For frontend to read
+            }
+        )
+        
+    except Exception as e:
+        print(f"QUOTE PDF ERROR: {e}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 # ============ Order PDF Export ============
 
 @app.get("/api/orders/{salesorder_id}/pdf")

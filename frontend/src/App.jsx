@@ -2325,6 +2325,8 @@ function CartTab({ onOrderSubmitted }) {
   const { addToast } = useToast()
   const [loading, setLoading] = useState(false)
   const [exporting, setExporting] = useState(false)
+  const [generatingPdf, setGeneratingPdf] = useState(false)
+  const [showPdfTypeModal, setShowPdfTypeModal] = useState(false)
   const [error, setError] = useState('')
   const [showCustomerSelect, setShowCustomerSelect] = useState(false)
   const [showDeliveryModal, setShowDeliveryModal] = useState(false)
@@ -2334,6 +2336,98 @@ function CartTab({ onOrderSubmitted }) {
   const amountToFreeDelivery = FREIGHT_FREE_THRESHOLD - cartTotal
   const orderTotal = needsDeliveryCharge ? cartTotal + DELIVERY_CHARGE : cartTotal
   
+  // Email PDF Quote - generates PDF and uses Web Share API
+  const handleEmailQuote = async (docType = 'quote') => {
+    setShowPdfTypeModal(false)
+    
+    if (cart.length === 0) {
+      setError('Cart is empty')
+      return
+    }
+    
+    setGeneratingPdf(true)
+    setError('')
+    
+    try {
+      const token = localStorage.getItem('token')
+      const agent = JSON.parse(localStorage.getItem('agent') || '{}')
+      
+      const response = await fetch(`${API_BASE}/export/quote-pdf`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          items: cart.map(item => ({
+            item_id: item.item_id,
+            name: item.name,
+            sku: item.sku,
+            ean: item.ean || '',
+            rate: item.rate,
+            quantity: item.quantity,
+            discount: item.discount || 0
+          })),
+          customer_name: customer?.company_name || 'Customer',
+          customer_email: customer?.email || null,
+          agent_name: agent?.name || 'Sales Agent',
+          include_images: true,
+          doc_type: docType
+        })
+      })
+      
+      if (!response.ok) {
+        throw new Error('Failed to generate PDF')
+      }
+      
+      const blob = await response.blob()
+      const filename = response.headers.get('X-Filename') || 'quote.pdf'
+      
+      // Try Web Share API first (works great on mobile)
+      if (navigator.share && navigator.canShare) {
+        const file = new File([blob], filename, { type: 'application/pdf' })
+        
+        if (navigator.canShare({ files: [file] })) {
+          try {
+            await navigator.share({
+              files: [file],
+              title: 'Quote from DM Brands',
+              text: `Please find attached quote for ${customer?.company_name || 'your order'}.`
+            })
+            addToast('Quote ready to share!', 'success')
+            return
+          } catch (shareErr) {
+            if (shareErr.name !== 'AbortError') {
+              console.log('Share failed, falling back to download:', shareErr)
+            } else {
+              // User cancelled share - that's fine
+              return
+            }
+          }
+        }
+      }
+      
+      // Fallback: Download the PDF
+      const url = window.URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = filename
+      document.body.appendChild(a)
+      a.click()
+      window.URL.revokeObjectURL(url)
+      a.remove()
+      addToast('PDF downloaded!', 'success')
+      
+    } catch (err) {
+      console.error('PDF generation error:', err)
+      setError(err.message)
+      addToast('Failed to generate PDF', 'error')
+    } finally {
+      setGeneratingPdf(false)
+    }
+  }
+  
+  // Excel export
   const handleExportQuote = async () => {
     if (cart.length === 0) {
       setError('Cart is empty')
@@ -2504,6 +2598,36 @@ function CartTab({ onOrderSubmitted }) {
         />
       )}
       
+      {showPdfTypeModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl w-full max-w-sm">
+            <div className="p-4 border-b border-gray-200">
+              <h2 className="text-lg font-bold text-center">Generate PDF</h2>
+            </div>
+            <div className="p-4 space-y-3">
+              <button
+                onClick={() => handleEmailQuote('quote')}
+                className="w-full py-4 bg-blue-600 text-white rounded-xl font-semibold text-lg hover:bg-blue-700 transition flex items-center justify-center gap-2"
+              >
+                📋 Quote
+              </button>
+              <button
+                onClick={() => handleEmailQuote('order')}
+                className="w-full py-4 bg-green-600 text-white rounded-xl font-semibold text-lg hover:bg-green-700 transition flex items-center justify-center gap-2"
+              >
+                📦 Order Confirmation
+              </button>
+              <button
+                onClick={() => setShowPdfTypeModal(false)}
+                className="w-full py-3 bg-gray-100 text-gray-700 rounded-xl font-medium hover:bg-gray-200 transition"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      
       <div className="flex-1 overflow-y-auto">
         {cart.length === 0 ? (
           <div className="flex flex-col items-center justify-center h-full text-gray-500">
@@ -2638,11 +2762,18 @@ function CartTab({ onOrderSubmitted }) {
           
           <div className="flex gap-2">
             <button
+              onClick={() => setShowPdfTypeModal(true)}
+              disabled={generatingPdf}
+              className="flex-1 bg-purple-600 text-white py-3 rounded-xl font-semibold hover:bg-purple-700 disabled:opacity-50 transition"
+            >
+              {generatingPdf ? '...' : '📧 PDF'}
+            </button>
+            <button
               onClick={handleExportQuote}
               disabled={exporting}
               className="flex-1 bg-blue-600 text-white py-3 rounded-xl font-semibold hover:bg-blue-700 disabled:opacity-50 transition"
             >
-              {exporting ? '...' : '📄 Quote'}
+              {exporting ? '...' : '📄 Excel'}
             </button>
             <button
               onClick={handleSubmitClick}
