@@ -391,6 +391,9 @@ function OfflineProvider({ children }) {
   const [isOnline, setIsOnline] = useState(navigator.onLine)
   const [syncStatus, setSyncStatus] = useState(null)
   const [isSyncing, setIsSyncing] = useState(false)
+  const [showSyncPrompt, setShowSyncPrompt] = useState(false)
+  const [showImagePrompt, setShowImagePrompt] = useState(false)
+  const [syncPromptReason, setSyncPromptReason] = useState('')
   const stockIntervalRef = useRef(null)
   
   // In-memory caches for instant access
@@ -445,6 +448,77 @@ function OfflineProvider({ children }) {
     }
   }
   
+  // Check if sync is needed and show prompts
+  const checkSyncNeeded = async (status) => {
+    if (!navigator.onLine || !localStorage.getItem('agent')) return
+    
+    const now = Date.now()
+    const ONE_DAY = 24 * 60 * 60 * 1000
+    const TWELVE_HOURS = 12 * 60 * 60 * 1000
+    
+    // Check if data is missing or stale
+    if (!status?.productCount || status.productCount === 0) {
+      setSyncPromptReason('You have no product data cached. Sync now for offline access.')
+      setShowSyncPrompt(true)
+      return
+    }
+    
+    if (!status?.customerCount || status.customerCount === 0) {
+      setSyncPromptReason('You have no customer data cached. Sync now for offline access.')
+      setShowSyncPrompt(true)
+      return
+    }
+    
+    // Check if last sync was more than 24 hours ago
+    if (status?.lastProductSync) {
+      const lastSync = new Date(status.lastProductSync).getTime()
+      if (now - lastSync > ONE_DAY) {
+        const hoursAgo = Math.round((now - lastSync) / (60 * 60 * 1000))
+        setSyncPromptReason(`Your data is ${hoursAgo} hours old. Sync to get latest products and stock levels.`)
+        setShowSyncPrompt(true)
+        return
+      }
+    }
+  }
+  
+  // Check if image download prompt should show
+  const checkImagePrompt = (status) => {
+    if (!navigator.onLine || !localStorage.getItem('agent')) return
+    if (!status?.productCount || status.productCount === 0) return // No products synced yet
+    
+    // Get tracking data from localStorage
+    const appOpens = parseInt(localStorage.getItem('dmb_app_opens') || '0') + 1
+    localStorage.setItem('dmb_app_opens', appOpens.toString())
+    
+    const imagesDownloadedAt = localStorage.getItem('dmb_images_downloaded_at')
+    const imagesProductCount = parseInt(localStorage.getItem('dmb_images_product_count') || '0')
+    
+    // If already downloaded and no new products, don't prompt
+    if (imagesDownloadedAt && imagesProductCount >= status.productCount) {
+      console.log('Images already downloaded, no new products')
+      return
+    }
+    
+    // Check if there are new products since last download
+    const hasNewProducts = imagesDownloadedAt && status.productCount > imagesProductCount
+    
+    // Show prompt every 5th open, or if there are new products (and it's been at least 1 open since last prompt)
+    const lastPromptOpen = parseInt(localStorage.getItem('dmb_last_image_prompt_open') || '0')
+    
+    if (hasNewProducts && appOpens > lastPromptOpen) {
+      // New products available
+      localStorage.setItem('dmb_last_image_prompt_open', appOpens.toString())
+      setShowImagePrompt(true)
+      return
+    }
+    
+    if (!imagesDownloadedAt && appOpens % 5 === 0) {
+      // Never downloaded, show every 5th open
+      localStorage.setItem('dmb_last_image_prompt_open', appOpens.toString())
+      setShowImagePrompt(true)
+    }
+  }
+  
   // Auto-sync when coming back online
   useEffect(() => {
     const handleOnline = async () => {
@@ -465,7 +539,13 @@ function OfflineProvider({ children }) {
     window.addEventListener('offline', handleOffline)
     
     // Load sync status on mount
-    refreshSyncStatus()
+    refreshSyncStatus().then(status => {
+      // Small delay to let login state settle
+      setTimeout(() => {
+        checkSyncNeeded(status)
+        checkImagePrompt(status)
+      }, 1000)
+    })
     
     // Load caches on mount
     loadCustomerCache()
@@ -511,6 +591,7 @@ function OfflineProvider({ children }) {
   
   const doSync = async (onProgress) => {
     setIsSyncing(true)
+    setShowSyncPrompt(false) // Close prompt when sync starts
     try {
       // includeImages: false - images load on-demand to save API calls
       await syncService.fullSync({ includeImages: false }, onProgress)
@@ -522,6 +603,33 @@ function OfflineProvider({ children }) {
       setIsSyncing(false)
     }
   }
+  
+  const doImageDownload = async (onProgress) => {
+    if (!navigator.onLine) return 0
+    setShowImagePrompt(false)
+    
+    try {
+      // Get products from cache
+      const products = await offlineStore.getProducts()
+      if (products.length === 0) return 0
+      
+      // Download images
+      const count = await syncService.syncImages(products, onProgress)
+      
+      // Mark as downloaded with current product count
+      localStorage.setItem('dmb_images_downloaded_at', new Date().toISOString())
+      localStorage.setItem('dmb_images_product_count', products.length.toString())
+      
+      await refreshSyncStatus()
+      return count
+    } catch (err) {
+      console.error('Image download failed:', err)
+      throw err
+    }
+  }
+  
+  const dismissSyncPrompt = () => setShowSyncPrompt(false)
+  const dismissImagePrompt = () => setShowImagePrompt(false)
   
   const doStockSync = async () => {
     if (!navigator.onLine) return
@@ -547,6 +655,7 @@ function OfflineProvider({ children }) {
       isSyncing,
       doSync,
       doStockSync,
+      doImageDownload,
       submitPendingOrders,
       refreshSyncStatus,
       customerCache,
@@ -555,7 +664,12 @@ function OfflineProvider({ children }) {
       productCache,
       productCacheLoaded,
       refreshProductCache: loadProductCache,
-      imageManifest
+      imageManifest,
+      showSyncPrompt,
+      showImagePrompt,
+      syncPromptReason,
+      dismissSyncPrompt,
+      dismissImagePrompt
     }}>
       {children}
     </OfflineContext.Provider>
@@ -2814,6 +2928,127 @@ function OrderSuccessModal({ order, onClose }) {
   )
 }
 
+// Sync and Image Download Prompts
+function SyncPrompts() {
+  const { 
+    showSyncPrompt, showImagePrompt, syncPromptReason,
+    dismissSyncPrompt, dismissImagePrompt, doSync, doImageDownload,
+    syncStatus
+  } = useOffline()
+  const { addToast } = useToast()
+  const [syncing, setSyncing] = useState(false)
+  const [downloading, setDownloading] = useState(false)
+  const [progress, setProgress] = useState('')
+  
+  const handleSync = async () => {
+    setSyncing(true)
+    setProgress('Starting sync...')
+    try {
+      await doSync((p) => setProgress(p.message || 'Syncing...'))
+      addToast('Sync complete!', 'success')
+    } catch (err) {
+      addToast('Sync failed: ' + err.message, 'error')
+    } finally {
+      setSyncing(false)
+      setProgress('')
+    }
+  }
+  
+  const handleImageDownload = async () => {
+    setDownloading(true)
+    setProgress('Starting download...')
+    try {
+      const count = await doImageDownload((p) => setProgress(p.message || 'Downloading...'))
+      addToast(`Downloaded ${count} images for offline use!`, 'success')
+    } catch (err) {
+      addToast('Download failed: ' + err.message, 'error')
+    } finally {
+      setDownloading(false)
+      setProgress('')
+    }
+  }
+  
+  // Sync Prompt Modal
+  if (showSyncPrompt) {
+    return (
+      <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+        <div className="bg-white rounded-2xl w-full max-w-md">
+          <div className="p-6 text-center">
+            <div className="text-5xl mb-4">🔄</div>
+            <h2 className="text-xl font-bold text-gray-800 mb-2">Sync Recommended</h2>
+            <p className="text-gray-600 mb-4">{syncPromptReason}</p>
+            {progress && (
+              <div className="text-sm text-blue-600 mb-4">{progress}</div>
+            )}
+          </div>
+          <div className="p-4 border-t border-gray-200 space-y-2">
+            <button
+              onClick={handleSync}
+              disabled={syncing}
+              className="w-full py-3 bg-blue-600 text-white rounded-xl font-semibold hover:bg-blue-700 disabled:opacity-50 transition"
+            >
+              {syncing ? progress || 'Syncing...' : '🔄 Sync Now'}
+            </button>
+            <button
+              onClick={dismissSyncPrompt}
+              disabled={syncing}
+              className="w-full py-3 bg-gray-100 text-gray-700 rounded-xl font-medium hover:bg-gray-200 disabled:opacity-50 transition"
+            >
+              Later
+            </button>
+          </div>
+        </div>
+      </div>
+    )
+  }
+  
+  // Image Download Prompt Modal
+  if (showImagePrompt) {
+    const hasNewProducts = localStorage.getItem('dmb_images_downloaded_at') && 
+      syncStatus?.productCount > parseInt(localStorage.getItem('dmb_images_product_count') || '0')
+    
+    return (
+      <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+        <div className="bg-white rounded-2xl w-full max-w-md">
+          <div className="p-6 text-center">
+            <div className="text-5xl mb-4">🖼️</div>
+            <h2 className="text-xl font-bold text-gray-800 mb-2">
+              {hasNewProducts ? 'New Products Available' : 'Download Images for Offline?'}
+            </h2>
+            <p className="text-gray-600 mb-4">
+              {hasNewProducts 
+                ? 'There are new product images available. Download them for faster offline browsing?'
+                : 'Pre-download all product images now for faster browsing and offline access. This may take a few minutes on slower connections.'
+              }
+            </p>
+            {progress && (
+              <div className="text-sm text-blue-600 mb-4">{progress}</div>
+            )}
+          </div>
+          <div className="p-4 border-t border-gray-200 space-y-2">
+            <button
+              onClick={handleImageDownload}
+              disabled={downloading}
+              className="w-full py-3 bg-purple-600 text-white rounded-xl font-semibold hover:bg-purple-700 disabled:opacity-50 transition"
+            >
+              {downloading ? progress || 'Downloading...' : '✓ Yes, Download Images'}
+            </button>
+            <button
+              onClick={dismissImagePrompt}
+              disabled={downloading}
+              className="w-full py-3 bg-gray-100 text-gray-700 rounded-xl font-medium hover:bg-gray-200 disabled:opacity-50 transition"
+            >
+              No Thanks
+            </button>
+          </div>
+        </div>
+      </div>
+    )
+  }
+  
+  return null
+}
+
 // Admin Panel (only for admins)
 function AdminTab() {
   const [agents, setAgents] = useState([])
@@ -3656,6 +3891,11 @@ function SettingsTab() {
         setSyncProgress(progress.message || '')
       })
       setSyncProgress('')
+      
+      // Mark as downloaded with current product count
+      localStorage.setItem('dmb_images_downloaded_at', new Date().toISOString())
+      localStorage.setItem('dmb_images_product_count', products.length.toString())
+      
       await refreshSyncStatus()
       addToast(`Downloaded ${count} images for offline use`, 'success')
     } catch (err) {
@@ -4058,6 +4298,7 @@ function MainApp() {
       <div className="h-full flex flex-col">
         <HomePage onNavigate={setActiveSection} />
         <TabBar activeTab={activeSection} setActiveTab={setActiveSection} />
+        <SyncPrompts />
       </div>
     )
   }
@@ -4084,6 +4325,8 @@ function MainApp() {
           onClose={() => setSuccessOrder(null)}
         />
       )}
+      
+      <SyncPrompts />
     </div>
   )
 }
