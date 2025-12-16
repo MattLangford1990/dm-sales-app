@@ -4,8 +4,8 @@
   "description": "DM Brands Sales App",
   "start_url": "/",
   "display": "standalone",
-  "background_color": "#1e40af",
-  "theme_color": "#1e40af",
+  "background_color": "#8d8089",
+  "theme_color": "#8d8089",
   "orientation": "portrait-primary",
   "scope": "/",
   "icons": [
