@@ -13,7 +13,7 @@ import io
 
 import json
 from config import get_settings
-from agents import get_agent, get_agent_brands, verify_agent_pin, list_agents, get_all_brand_patterns, is_admin, list_all_agents_admin, create_agent, update_agent, delete_agent, get_all_brands
+from agents import get_agent, get_agent_brands, verify_agent_pin, list_agents, get_all_brand_patterns, is_admin, list_all_agents_admin, create_agent, update_agent, delete_agent, get_all_brands, change_agent_pin
 import zoho_api
 
 # Load pack quantities
@@ -356,6 +356,21 @@ async def get_me(agent: TokenData = Depends(get_current_agent)):
         "brands": agent.brands,
         "is_admin": is_admin(agent.agent_id)
     }
+
+
+class ChangePinRequest(BaseModel):
+    current_pin: str
+    new_pin: str
+
+
+@app.post("/api/auth/change-pin")
+async def change_pin(request: ChangePinRequest, agent: TokenData = Depends(get_current_agent)):
+    """Change the current agent's PIN"""
+    try:
+        change_agent_pin(agent.agent_id, request.current_pin, request.new_pin)
+        return {"message": "PIN changed successfully"}
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
 
 # ============ Admin Routes ============

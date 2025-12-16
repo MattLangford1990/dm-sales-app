@@ -333,3 +333,29 @@ def delete_agent(agent_id: str) -> bool:
 def get_all_brands() -> List[str]:
     """Get list of all available brands"""
     return ALL_BRANDS.copy()
+
+
+def change_agent_pin(agent_id: str, current_pin: str, new_pin: str) -> bool:
+    """Change an agent's PIN (requires current PIN for verification)"""
+    agents = load_agents()
+    agent_id = agent_id.lower()
+    
+    if agent_id not in agents:
+        raise ValueError("Agent not found")
+    
+    agent = agents[agent_id]
+    
+    # Verify current PIN
+    if agent["pin"] != current_pin:
+        raise ValueError("Current PIN is incorrect")
+    
+    # Validate new PIN
+    if not new_pin or len(new_pin) < 4:
+        raise ValueError("New PIN must be at least 4 characters")
+    
+    # Update PIN
+    agent_data = agent.copy()
+    agent_data["pin"] = new_pin
+    save_agent(agent_id, agent_data)
+    
+    return True

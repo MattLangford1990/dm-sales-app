@@ -3516,6 +3516,10 @@ function SettingsTab() {
   const [isDownloadingImages, setIsDownloadingImages] = useState(false)
   const [debugInfo, setDebugInfo] = useState(null)
   const [showDebug, setShowDebug] = useState(false)
+  const [showChangePin, setShowChangePin] = useState(false)
+  const [pinForm, setPinForm] = useState({ current: '', new: '', confirm: '' })
+  const [pinLoading, setPinLoading] = useState(false)
+  const [pinError, setPinError] = useState('')
   
   // Debug function to check what's happening
   const runDebug = async () => {
@@ -3574,6 +3578,43 @@ function SettingsTab() {
     }
     
     setDebugInfo(info)
+  }
+  
+  const handleChangePin = async () => {
+    setPinError('')
+    
+    if (!pinForm.current || !pinForm.new || !pinForm.confirm) {
+      setPinError('Please fill in all fields')
+      return
+    }
+    
+    if (pinForm.new !== pinForm.confirm) {
+      setPinError('New PINs do not match')
+      return
+    }
+    
+    if (pinForm.new.length < 4) {
+      setPinError('New PIN must be at least 4 characters')
+      return
+    }
+    
+    setPinLoading(true)
+    try {
+      await apiRequest('/auth/change-pin', {
+        method: 'POST',
+        body: JSON.stringify({
+          current_pin: pinForm.current,
+          new_pin: pinForm.new
+        })
+      })
+      addToast('PIN changed successfully!', 'success')
+      setShowChangePin(false)
+      setPinForm({ current: '', new: '', confirm: '' })
+    } catch (err) {
+      setPinError(err.message || 'Failed to change PIN')
+    } finally {
+      setPinLoading(false)
+    }
   }
   
   const handleSync = async () => {
@@ -3742,13 +3783,94 @@ function SettingsTab() {
             <span className="font-medium text-right">{agent?.brands?.join(', ')}</span>
           </div>
         </div>
-        <button
-          onClick={logout}
-          className="w-full mt-4 py-3 bg-gray-200 text-gray-800 rounded-lg font-semibold"
-        >
-          Log Out
-        </button>
+        <div className="mt-4 space-y-2">
+          <button
+            onClick={() => { setShowChangePin(true); setPinError(''); setPinForm({ current: '', new: '', confirm: '' }); }}
+            disabled={!isOnline}
+            className="w-full py-3 bg-blue-600 text-white rounded-lg font-semibold hover:bg-blue-700 disabled:bg-gray-400 transition"
+          >
+            🔐 Change PIN
+          </button>
+          <button
+            onClick={logout}
+            className="w-full py-3 bg-gray-200 text-gray-800 rounded-lg font-semibold hover:bg-gray-300 transition"
+          >
+            Log Out
+          </button>
+        </div>
       </div>
+      
+      {/* Change PIN Modal */}
+      {showChangePin && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl w-full max-w-md">
+            <div className="p-4 border-b border-gray-200 flex justify-between items-center">
+              <h2 className="text-lg font-bold">🔐 Change PIN</h2>
+              <button onClick={() => setShowChangePin(false)} className="text-gray-500 text-2xl">&times;</button>
+            </div>
+            
+            <div className="p-4 space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Current PIN</label>
+                <input
+                  type="password"
+                  inputMode="numeric"
+                  value={pinForm.current}
+                  onChange={(e) => setPinForm({ ...pinForm, current: e.target.value })}
+                  placeholder="Enter current PIN"
+                  className="w-full px-3 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none"
+                />
+              </div>
+              
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">New PIN</label>
+                <input
+                  type="password"
+                  inputMode="numeric"
+                  value={pinForm.new}
+                  onChange={(e) => setPinForm({ ...pinForm, new: e.target.value })}
+                  placeholder="Enter new PIN (min 4 characters)"
+                  className="w-full px-3 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none"
+                />
+              </div>
+              
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Confirm New PIN</label>
+                <input
+                  type="password"
+                  inputMode="numeric"
+                  value={pinForm.confirm}
+                  onChange={(e) => setPinForm({ ...pinForm, confirm: e.target.value })}
+                  placeholder="Confirm new PIN"
+                  className="w-full px-3 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none"
+                />
+              </div>
+              
+              {pinError && (
+                <div className="bg-red-50 text-red-600 px-4 py-3 rounded-lg text-sm">
+                  {pinError}
+                </div>
+              )}
+            </div>
+            
+            <div className="p-4 border-t border-gray-200 space-y-2">
+              <button
+                onClick={handleChangePin}
+                disabled={pinLoading}
+                className="w-full py-3 bg-blue-600 text-white rounded-xl font-semibold hover:bg-blue-700 disabled:opacity-50 transition"
+              >
+                {pinLoading ? 'Changing...' : 'Change PIN'}
+              </button>
+              <button
+                onClick={() => setShowChangePin(false)}
+                className="w-full py-3 bg-gray-100 text-gray-700 rounded-xl font-medium hover:bg-gray-200 transition"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       
       {/* Clear Cache */}
       <div className="bg-red-50 rounded-lg border border-red-200 p-4">
