@@ -3,6 +3,72 @@ import { Routes, Route, Navigate, useNavigate } from 'react-router-dom'
 import * as offlineStore from './offlineStore'
 import * as syncService from './syncService'
 
+// Wake Lock helper to prevent screen sleep during long operations
+// Uses Wake Lock API with fallback to video trick for iOS
+const useWakeLock = () => {
+  const wakeLockRef = useRef(null)
+  const videoRef = useRef(null)
+  
+  const requestWakeLock = async () => {
+    // Try native Wake Lock API first (Chrome, Edge, etc.)
+    if ('wakeLock' in navigator) {
+      try {
+        wakeLockRef.current = await navigator.wakeLock.request('screen')
+        console.log('Wake lock acquired via API')
+        return
+      } catch (err) {
+        console.log('Wake Lock API failed:', err.message)
+      }
+    }
+    
+    // Fallback: Create a tiny looping video to keep screen awake (works on iOS)
+    try {
+      if (!videoRef.current) {
+        const video = document.createElement('video')
+        video.setAttribute('playsinline', '')
+        video.setAttribute('muted', '')
+        video.setAttribute('loop', '')
+        video.style.position = 'fixed'
+        video.style.top = '-1px'
+        video.style.left = '-1px'
+        video.style.width = '1px'
+        video.style.height = '1px'
+        video.style.opacity = '0.01'
+        
+        // Tiny base64 encoded silent video (1 second)
+        video.src = 'data:video/mp4;base64,AAAAIGZ0eXBpc29tAAACAGlzb21pc28yYXZjMW1wNDEAAAAIZnJlZQAAA4BtZGF0AAACrgYF//+q3EXpvebZSLeWLNgg2SPu73gyNjQgLSBjb3JlIDE1MiByMjg1NCBlOWE1OTAzIC0gSC4yNjQvTVBFRy00IEFWQyBjb2RlYyAtIENvcHlsZWZ0IDIwMDMtMjAxNyAtIGh0dHA6Ly93d3cudmlkZW9sYW4ub3JnL3gyNjQuaHRtbCAtIG9wdGlvbnM6IGNhYmFjPTEgcmVmPTMgZGVibG9jaz0xOjA6MCBhbmFseXNlPTB4MzoweDExMyBtZT1oZXggc3VibWU9NyBwc3k9MSBwc3lfcmQ9MS4wMDowLjAwIG1peGVkX3JlZj0xIG1lX3JhbmdlPTE2IGNocm9tYV9tZT0xIHRyZWxsaXM9MSA4eDhkY3Q9MSBjcW09MCBkZWFkem9uZT0yMSwxMSBmYXN0X3Bza2lwPTEgY2hyb21hX3FwX29mZnNldD0tMiB0aHJlYWRzPTMgbG9va2FoZWFkX3RocmVhZHM9MSBzbGljZWRfdGhyZWFkcz0wIG5yPTAgZGVjaW1hdGU9MSBpbnRlcmxhY2VkPTAgYmx1cmF5X2NvbXBhdD0wIGNvbnN0cmFpbmVkX2ludHJhPTAgYmZyYW1lcz0zIGJfcHlyYW1pZD0yIGJfYWRhcHQ9MSBiX2JpYXM9MCBkaXJlY3Q9MSB3ZWlnaHRiPTEgb3Blbl9nb3A9MCB3ZWlnaHRwPTIga2V5aW50PTI1MCBrZXlpbnRfbWluPTEgc2NlbmVjdXQ9NDAgaW50cmFfcmVmcmVzaD0wIHJjX2xvb2thaGVhZD00MCByYz1jcmYgbWJ0cmVlPTEgY3JmPTIzLjAgcWNvbXA9MC42MCBxcG1pbj0wIHFwbWF4PTY5IHFwc3RlcD00IGlwX3JhdGlvPTEuNDAgYXE9MToxLjAwAIAAAAAwZYiEAD//8m+P5OXfBeLGOfKE3xkODvFZuBflHv/+VwJIta6cbpIo8u8pKxg0Ng5aAAAAEGQAB4AAAAALAAB+QAADaQAAAAwBTgMaAAWAAA8QAAADIAAB+gAAAAwBQBMF4AAHiBQAAACAgAH5AAAD6AAAAAHAKAJgvAAA8QAAAAEAB+QAABtAAAAB4CgCYLwAAPEAAAABAAf4AAACgAAAACAVATBeAAB4gAAAAQAH6AAAA+gAAAAQCoAmC8AADxAAAAAQAH+AAAA4AAAAA8BQBMFoAAHiAAAABAAfoAAAPoAAAAEAqAJgvAAA8QAAAAEAB/gAAAOAAAAAPAUATBaAAB4gAAAAQAH6AAAD6AAAABAKgCYLwAAPEAAAABAAfwAAAEAAAAABwCgCYLQAAPEAAAABAAfQAAACAAAAAHAKAJgtAAA8QAAAAEAB9AAAAIAAAAAcAoAmC0AADxAAAAAQAH0AAABAAAAADgFAEwWgAAeIAAAAEAB9AAAAQAAAAAwBQBMFoAAeIAAAACAA/QAAAEAAAAAOAUATBaAAB4gAAAAIAD9AAAAQAAAAAwBQBMF4AAHiAAAAAQAH0AAABAAAAADgFAEwXgAAeIAAAABAAfQAAAEAAAAAOAUATBeAAB4gAAAAEAB9AAAAQAAAAAwBQBMFoAAHiAAAAAQAH6AAAAgAAAABwCgCYLwAAPEAAAABAAfQAAACAAAAAHAKAJgvAAA8QAAAAEAB9AAAAIAAAAAYAoAmC8AADxAAAAAQAH0AAABAAAAADgFAEwXgAAeIAAAABAAfQAAAEAAAAAOAUATBeAAB4gAAAAEAB9AAAAYAAAAAMATBeAAAAAAAAAAAAAAA='
+        
+        document.body.appendChild(video)
+        videoRef.current = video
+      }
+      
+      videoRef.current.play().catch(() => {})
+      console.log('Wake lock acquired via video fallback')
+    } catch (err) {
+      console.log('Video fallback failed:', err)
+    }
+  }
+  
+  const releaseWakeLock = () => {
+    // Release Wake Lock API
+    if (wakeLockRef.current) {
+      wakeLockRef.current.release()
+      wakeLockRef.current = null
+      console.log('Wake lock released via API')
+    }
+    
+    // Stop and remove video
+    if (videoRef.current) {
+      videoRef.current.pause()
+      videoRef.current.remove()
+      videoRef.current = null
+      console.log('Wake lock released via video')
+    }
+  }
+  
+  return { requestWakeLock, releaseWakeLock }
+}
+
 // Debounce hook for search inputs
 function useDebounce(value, delay = 300) {
   const [debouncedValue, setDebouncedValue] = useState(value)
@@ -2939,16 +3005,19 @@ function SyncPrompts() {
   const [syncing, setSyncing] = useState(false)
   const [downloading, setDownloading] = useState(false)
   const [progress, setProgress] = useState('')
+  const { requestWakeLock, releaseWakeLock } = useWakeLock()
   
   const handleSync = async () => {
     setSyncing(true)
     setProgress('Starting sync...')
+    await requestWakeLock()
     try {
       await doSync((p) => setProgress(p.message || 'Syncing...'))
       addToast('Sync complete!', 'success')
     } catch (err) {
       addToast('Sync failed: ' + err.message, 'error')
     } finally {
+      releaseWakeLock()
       setSyncing(false)
       setProgress('')
     }
@@ -2957,12 +3026,14 @@ function SyncPrompts() {
   const handleImageDownload = async () => {
     setDownloading(true)
     setProgress('Starting download...')
+    await requestWakeLock()
     try {
       const count = await doImageDownload((p) => setProgress(p.message || 'Downloading...'))
       addToast(`Downloaded ${count} images for offline use!`, 'success')
     } catch (err) {
       addToast('Download failed: ' + err.message, 'error')
     } finally {
+      releaseWakeLock()
       setDownloading(false)
       setProgress('')
     }
@@ -2978,7 +3049,10 @@ function SyncPrompts() {
             <h2 className="text-xl font-bold text-gray-800 mb-2">Sync Recommended</h2>
             <p className="text-gray-600 mb-4">{syncPromptReason}</p>
             {progress && (
-              <div className="text-sm text-blue-600 mb-4">{progress}</div>
+              <div className="text-sm text-blue-600 mb-4">
+                <div>{progress}</div>
+                <div className="text-xs text-gray-500 mt-1">📱 Screen will stay on during download</div>
+              </div>
             )}
           </div>
           <div className="p-4 border-t border-gray-200 space-y-2">
@@ -3022,7 +3096,10 @@ function SyncPrompts() {
               }
             </p>
             {progress && (
-              <div className="text-sm text-blue-600 mb-4">{progress}</div>
+              <div className="text-sm text-purple-600 mb-4">
+                <div>{progress}</div>
+                <div className="text-xs text-gray-500 mt-1">📱 Screen will stay on during download</div>
+              </div>
             )}
           </div>
           <div className="p-4 border-t border-gray-200 space-y-2">
@@ -3755,6 +3832,7 @@ function SettingsTab() {
   const [pinForm, setPinForm] = useState({ current: '', new: '', confirm: '' })
   const [pinLoading, setPinLoading] = useState(false)
   const [pinError, setPinError] = useState('')
+  const { requestWakeLock, releaseWakeLock } = useWakeLock()
   
   // Debug function to check what's happening
   const runDebug = async () => {
@@ -3858,6 +3936,7 @@ function SettingsTab() {
       return
     }
     
+    await requestWakeLock()
     try {
       await doSync((progress) => {
         setSyncProgress(progress.message || '')
@@ -3867,6 +3946,8 @@ function SettingsTab() {
     } catch (err) {
       setSyncProgress('')
       addToast('Sync failed: ' + err.message, 'error')
+    } finally {
+      releaseWakeLock()
     }
   }
   
@@ -3877,12 +3958,14 @@ function SettingsTab() {
     }
     
     setIsDownloadingImages(true)
+    await requestWakeLock()
     try {
       // Get products from cache
       const products = await offlineStore.getProducts()
       if (products.length === 0) {
         addToast('Sync products first', 'error')
         setIsDownloadingImages(false)
+        releaseWakeLock()
         return
       }
       
@@ -3902,6 +3985,7 @@ function SettingsTab() {
       setSyncProgress('')
       addToast('Image download failed: ' + err.message, 'error')
     } finally {
+      releaseWakeLock()
       setIsDownloadingImages(false)
     }
   }
@@ -3976,6 +4060,9 @@ function SettingsTab() {
         >
           {isSyncing ? syncProgress || 'Syncing...' : '📲 Sync Products & Customers'}
         </button>
+        {isSyncing && (
+          <p className="text-xs text-gray-500 mt-1 text-center">📱 Screen will stay on during sync</p>
+        )}
         <p className="text-xs text-gray-500 mt-2 text-center">
           Downloads product data and customers for offline browsing
         </p>
