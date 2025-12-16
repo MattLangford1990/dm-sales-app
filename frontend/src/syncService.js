@@ -142,6 +142,12 @@ export async function syncCustomers(onProgress) {
 const CLOUDINARY_BASE = 'https://res.cloudinary.com/dcfbgveei/image/upload'
 const CLOUDINARY_TRANSFORM = 'w_300,q_60,f_auto' // Same as 'small' in App.jsx
 
+// Convert SKU to Cloudinary format (dots -> underscores for My Flame products)
+const skuToCloudinaryId = (sku) => {
+  if (!sku) return null
+  return sku.replace(/\./g, '_')
+}
+
 // Pre-cache product images for offline use
 // Downloads from Cloudinary CDN (fast, no rate limits) and saves to IndexedDB
 export async function syncImages(products, onProgress) {
@@ -181,7 +187,8 @@ export async function syncImages(products, onProgress) {
           }
           
           // Download from Cloudinary CDN
-          const url = `${CLOUDINARY_BASE}/${CLOUDINARY_TRANSFORM}/products/${sku}.jpg`
+          const cloudinarySku = skuToCloudinaryId(sku)
+          const url = `${CLOUDINARY_BASE}/${CLOUDINARY_TRANSFORM}/products/${cloudinarySku}.jpg`
           
           const response = await fetch(url)
           
@@ -304,16 +311,18 @@ export async function submitPendingOrders(onProgress) {
 
 // Get sync status
 export async function getSyncStatus() {
-  const [lastProductSync, productCount, lastCustomerSync, customerCount, lastImageSync, imageCount, lastStockSync] = 
+  const [lastProductSync, productCount, lastCustomerSync, customerCount, lastImageSync, lastStockSync] = 
     await Promise.all([
       offlineStore.getSyncMeta('lastProductSync'),
       offlineStore.getSyncMeta('productCount'),
       offlineStore.getSyncMeta('lastCustomerSync'),
       offlineStore.getSyncMeta('customerCount'),
       offlineStore.getSyncMeta('lastImageSync'),
-      offlineStore.getSyncMeta('imageCount'),
       offlineStore.getSyncMeta('lastStockSync')
     ])
+  
+  // Get actual image count from IndexedDB (more reliable than meta)
+  const imageCount = await offlineStore.getImageCount()
   
   const pendingOrders = await offlineStore.getPendingOrders()
   
