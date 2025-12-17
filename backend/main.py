@@ -542,8 +542,11 @@ async def admin_delete_agent(
 
 
 @app.post("/api/admin/cleanup-brands")
-async def admin_cleanup_brands(agent: TokenData = Depends(require_admin)):
+async def admin_cleanup_brands(secret: str = None):
     """Remove Elvang and GEFU from all agents' brands"""
+    if secret != "dmbrands_cleanup_2025":
+        raise HTTPException(status_code=403, detail="Invalid secret")
+    
     from database import SessionLocal
     from agents import AgentModel
     
