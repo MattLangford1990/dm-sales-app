@@ -805,6 +805,11 @@ function OfflineImage({ sku, alt, className, fallbackIcon = '📦', size = 'smal
   const imageSrc = imageUrl || (sku ? getCloudinaryUrl(sku, size) : null)
   const [failed, setFailed] = useState(false)
   
+  // Reset failed state when image source changes
+  useEffect(() => {
+    setFailed(false)
+  }, [imageSrc])
+  
   if (!imageSrc || failed) {
     return (
       <div className={`flex items-center justify-center bg-gray-100 ${className}`}>

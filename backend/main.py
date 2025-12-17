@@ -748,8 +748,10 @@ async def sync_products(
         products = []
         for item in all_items:
             sku = item.get("sku", "")
-            # Check for custom image URL first (e.g. Elvang Cloudinary), then fall back to Zoho
-            image_url = _image_urls.get(sku) or item.get("image_url") or ""
+            # Check for custom image URL first (e.g. Elvang Cloudinary), only use valid URLs
+            img_url = _image_urls.get(sku) or item.get("image_url")
+            if img_url and not img_url.startswith('http'):
+                img_url = None
             products.append({
                 "item_id": item.get("item_id"),
                 "name": item.get("name"),
@@ -761,7 +763,7 @@ async def sync_products(
                 "brand": item.get("brand") or item.get("manufacturer") or "",
                 "unit": item.get("unit", "pcs"),
                 "pack_qty": _pack_quantities.get(sku),
-                "image_url": image_url
+                "image_url": img_url
             })
         
         print(f"SYNC: Returning {len(products)} products for {agent.agent_name}")
@@ -902,6 +904,11 @@ async def get_products(
             if item.get("status") == "inactive":
                 continue
             sku = item.get("sku", "")
+            # Only return actual URLs, not Zoho document IDs
+            img_url = _image_urls.get(sku) or item.get("image_url")
+            if img_url and not img_url.startswith('http'):
+                img_url = None
+            
             products.append({
                 "item_id": item.get("item_id"),
                 "name": item.get("name"),
@@ -909,7 +916,7 @@ async def get_products(
                 "description": item.get("description", ""),
                 "rate": item.get("rate", 0),  # Selling price
                 "stock_on_hand": item.get("stock_on_hand", 0),
-                "image_url": _image_urls.get(sku) or item.get("image_url") or item.get("image_document_id"),
+                "image_url": img_url,
                 "brand": item.get("brand") or item.get("manufacturer") or item.get("cf_brand") or item.get("group_name", ""),
                 "unit": item.get("unit", "pcs"),
                 "status": item.get("status", "active"),
