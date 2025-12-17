@@ -799,65 +799,13 @@ function LoadingSpinner() {
   )
 }
 
-// Smart image component - checks offline cache first, then Cloudinary CDN
-// Uses SKU for both IndexedDB lookup and Cloudinary URL
+// Smart image component - uses Cloudinary CDN directly
 function OfflineImage({ sku, alt, className, fallbackIcon = '📦', size = 'small', imageUrl = null }) {
-  // Treat empty string as null
-  const effectiveImageUrl = imageUrl || null
-  
-  const [imageSrc, setImageSrc] = useState(null)
+  // Use imageUrl if provided (e.g. Elvang), otherwise use Cloudinary path
+  const imageSrc = imageUrl || (sku ? getCloudinaryUrl(sku, size) : null)
   const [failed, setFailed] = useState(false)
-  const [checked, setChecked] = useState(false)
   
-  useEffect(() => {
-    if (!sku) {
-      // No SKU - use imageUrl directly if available
-      if (effectiveImageUrl) {
-        setImageSrc(effectiveImageUrl)
-      }
-      setChecked(true)
-      return
-    }
-    
-    // Calculate fallback URL upfront
-    const fallbackUrl = effectiveImageUrl || getCloudinaryUrl(sku, size)
-    
-    // Set a timeout - if IndexedDB takes too long, use fallback
-    let resolved = false
-    const timeout = setTimeout(() => {
-      if (!resolved) {
-        resolved = true
-        setImageSrc(fallbackUrl)
-        setChecked(true)
-      }
-    }, 300)
-    
-    // Try IndexedDB cache
-    offlineStore.getImage(sku).then(cachedData => {
-      if (resolved) return
-      resolved = true
-      clearTimeout(timeout)
-      
-      if (cachedData) {
-        setImageSrc(cachedData)
-      } else {
-        setImageSrc(fallbackUrl)
-      }
-      setChecked(true)
-    }).catch(() => {
-      if (resolved) return
-      resolved = true
-      clearTimeout(timeout)
-      setImageSrc(fallbackUrl)
-      setChecked(true)
-    })
-    
-    return () => {
-      clearTimeout(timeout)
-    }
-  }, [sku, size, effectiveImageUrl])
-  
-  if ((!sku && !effectiveImageUrl) || failed || !checked) {
+  if (!imageSrc || failed) {
     return (
       <div className={`flex items-center justify-center bg-gray-100 ${className}`}>
         <span className="text-4xl">{fallbackIcon}</span>
