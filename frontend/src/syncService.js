@@ -194,16 +194,24 @@ export async function syncImages(products, onProgress) {
           
           if (response.ok) {
             const blob = await response.blob()
+            console.log('SYNC: Blob for', sku, '- type:', blob.type, 'size:', blob.size)
             
-            // Only save if it's actually an image with content
-            if (blob.type.startsWith('image/') && blob.size > 500) {
+            // Only save if it has content (Cloudinary returns proper content-type)
+            if (blob.size > 500) {
               await offlineStore.saveImage(sku, blob)
+              
+              // Verify it was saved
+              const verify = await offlineStore.getImage(sku)
+              console.log('SYNC: Verify save for', sku, '- found:', !!verify)
+              
               return { status: 'cached', sku }
             } else {
+              console.log('SYNC: Blob too small for', sku)
               return { status: 'noimage', sku }
             }
           } else {
             // 404 = no image for this product
+            console.log('SYNC: No image (HTTP', response.status, ') for', sku)
             return { status: 'noimage', sku }
           }
         } catch (err) {
