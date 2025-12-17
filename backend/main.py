@@ -541,7 +541,7 @@ async def admin_delete_agent(
         raise HTTPException(status_code=404, detail=str(e))
 
 
-@app.post("/api/admin/cleanup-brands")
+@app.post("/api/cron/cleanup-brands")
 async def admin_cleanup_brands(secret: str = None):
     """Remove Elvang and GEFU from all agents' brands"""
     if secret != "dmbrands_cleanup_2025":
