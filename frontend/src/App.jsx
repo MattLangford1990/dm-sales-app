@@ -802,6 +802,9 @@ function LoadingSpinner() {
 // Smart image component - checks offline cache first, then Cloudinary CDN
 // Uses SKU for both IndexedDB lookup and Cloudinary URL
 function OfflineImage({ sku, alt, className, fallbackIcon = '📦', size = 'small', imageUrl = null }) {
+  // Treat empty string as null
+  const effectiveImageUrl = imageUrl || null
+  
   const [imageSrc, setImageSrc] = useState(null)
   const [failed, setFailed] = useState(false)
   const [checked, setChecked] = useState(false)
@@ -809,8 +812,8 @@ function OfflineImage({ sku, alt, className, fallbackIcon = '📦', size = 'smal
   useEffect(() => {
     if (!sku) {
       // No SKU - use imageUrl directly if available
-      if (imageUrl) {
-        setImageSrc(imageUrl)
+      if (effectiveImageUrl) {
+        setImageSrc(effectiveImageUrl)
       }
       setChecked(true)
       return
@@ -821,9 +824,9 @@ function OfflineImage({ sku, alt, className, fallbackIcon = '📦', size = 'smal
       if (cachedData) {
         // Use cached base64 image
         setImageSrc(cachedData)
-      } else if (imageUrl) {
+      } else if (effectiveImageUrl) {
         // Use product's image_url if available (e.g. Elvang)
-        setImageSrc(imageUrl)
+        setImageSrc(effectiveImageUrl)
       } else {
         // Fall back to Cloudinary CDN
         setImageSrc(getCloudinaryUrl(sku, size))
@@ -831,12 +834,12 @@ function OfflineImage({ sku, alt, className, fallbackIcon = '📦', size = 'smal
       setChecked(true)
     }).catch(() => {
       // Error reading cache, use imageUrl or Cloudinary
-      setImageSrc(imageUrl || getCloudinaryUrl(sku, size))
+      setImageSrc(effectiveImageUrl || getCloudinaryUrl(sku, size))
       setChecked(true)
     })
-  }, [sku, size, imageUrl])
+  }, [sku, size, effectiveImageUrl])
   
-  if ((!sku && !imageUrl) || failed || !checked) {
+  if ((!sku && !effectiveImageUrl) || failed || !checked) {
     return (
       <div className={`flex items-center justify-center bg-gray-100 ${className}`}>
         <span className="text-4xl">{fallbackIcon}</span>
