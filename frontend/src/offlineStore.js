@@ -353,12 +353,23 @@ export async function getImage(itemId) {
 
 // Debug function to count images in IndexedDB
 export async function getImageCount() {
-  const store = await getStore('images')
-  return new Promise((resolve, reject) => {
-    const request = store.count()
-    request.onsuccess = () => resolve(request.result)
-    request.onerror = () => reject(request.error)
-  })
+  try {
+    const store = await getStore('images')
+    return new Promise((resolve, reject) => {
+      const request = store.count()
+      request.onsuccess = () => {
+        console.log('getImageCount: IndexedDB reports', request.result, 'images')
+        resolve(request.result)
+      }
+      request.onerror = () => {
+        console.error('getImageCount: Error', request.error)
+        reject(request.error)
+      }
+    })
+  } catch (err) {
+    console.error('getImageCount: Failed to get store', err)
+    return 0
+  }
 }
 
 // Debug function to list all image IDs

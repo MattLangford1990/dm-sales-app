@@ -319,6 +319,8 @@ export async function submitPendingOrders(onProgress) {
 
 // Get sync status
 export async function getSyncStatus() {
+  console.log('getSyncStatus: Fetching sync status...')
+  
   const [lastProductSync, productCount, lastCustomerSync, customerCount, lastImageSync, lastStockSync] = 
     await Promise.all([
       offlineStore.getSyncMeta('lastProductSync'),
@@ -330,11 +332,13 @@ export async function getSyncStatus() {
     ])
   
   // Get actual image count from IndexedDB (more reliable than meta)
+  console.log('getSyncStatus: Getting image count from IndexedDB...')
   const imageCount = await offlineStore.getImageCount()
+  console.log('getSyncStatus: Image count returned:', imageCount)
   
   const pendingOrders = await offlineStore.getPendingOrders()
   
-  return {
+  const status = {
     lastProductSync,
     productCount: productCount || 0,
     lastCustomerSync,
@@ -344,6 +348,9 @@ export async function getSyncStatus() {
     lastStockSync,
     pendingOrderCount: pendingOrders.length
   }
+  
+  console.log('getSyncStatus: Returning', status)
+  return status
 }
 
 // Check if online
