@@ -801,13 +801,13 @@ function LoadingSpinner() {
 
 // Smart image component - checks offline cache first, then Cloudinary CDN
 // Uses SKU for both IndexedDB lookup and Cloudinary URL
-function OfflineImage({ sku, alt, className, fallbackIcon = '📦', size = 'small' }) {
+function OfflineImage({ sku, alt, className, fallbackIcon = '📦', size = 'small', imageUrl = null }) {
   const [imageSrc, setImageSrc] = useState(null)
   const [failed, setFailed] = useState(false)
   const [checked, setChecked] = useState(false)
   
   useEffect(() => {
-    if (!sku) {
+    if (!sku && !imageUrl) {
       setChecked(true)
       return
     }
@@ -817,17 +817,20 @@ function OfflineImage({ sku, alt, className, fallbackIcon = '📦', size = 'smal
       if (cachedData) {
         // Use cached base64 image
         setImageSrc(cachedData)
+      } else if (imageUrl) {
+        // Use product's image_url if available (e.g. Elvang Cloudinary URLs)
+        setImageSrc(imageUrl)
       } else {
-        // Fall back to Cloudinary CDN
+        // Fall back to standard Cloudinary CDN path
         setImageSrc(getCloudinaryUrl(sku, size))
       }
       setChecked(true)
     }).catch(() => {
-      // Error reading cache, use Cloudinary
-      setImageSrc(getCloudinaryUrl(sku, size))
+      // Error reading cache, use imageUrl or Cloudinary
+      setImageSrc(imageUrl || getCloudinaryUrl(sku, size))
       setChecked(true)
     })
-  }, [sku, size])
+  }, [sku, size, imageUrl])
   
   if (!sku || failed || !checked) {
     return (
@@ -873,7 +876,8 @@ function ProductDetailModal({ product, onClose, onAddToCart, germanStockInfo }) 
   const { imageManifest } = useOffline()
   
   // Main image URL - show immediately
-  const mainImageUrl = product?.sku ? getCloudinaryUrl(product.sku, 'medium') : null
+  // Use product.image_url if available (e.g. Elvang), otherwise fall back to standard Cloudinary path
+  const mainImageUrl = product?.image_url || (product?.sku ? getCloudinaryUrl(product.sku, 'medium') : null)
   
   // All valid images (main + extras)
   const allImages = mainImageUrl && !mainImageFailed ? [mainImageUrl, ...extraImages] : extraImages
@@ -1698,6 +1702,7 @@ function ProductsTab() {
                         alt={product.name}
                         className="w-full h-full object-contain"
                         fallbackIcon="📦"
+                        imageUrl={product.image_url}
                       />
                     </div>
                     
@@ -2646,6 +2651,7 @@ function CartTab({ onOrderSubmitted }) {
                       className="w-full h-full object-cover"
                       fallbackIcon="📦"
                       size="thumb"
+                      imageUrl={item.image_url}
                     />
                   </div>
                   <div className="flex-1 min-w-0">

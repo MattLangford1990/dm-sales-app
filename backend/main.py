@@ -2104,7 +2104,7 @@ async def admin_delete_catalogue(
 from database import SessionLocal, ProductFeed
 
 
-@app.get("/api/products/feed")
+@app.get("/api/feed/products")
 async def get_product_feed():
     """
     Get the static product feed JSON from database.
@@ -2129,11 +2129,11 @@ async def get_product_feed():
         db.close()
 
 
-@app.get("/api/products/feed-url")
+@app.get("/api/feed/products-url")
 async def get_product_feed_url():
     """Get URL for static product feed"""
     return {
-        "url": "/api/products/feed",
+        "url": "/api/feed/products",
         "description": "Static product feed, updated every 4 hours"
     }
 
