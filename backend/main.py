@@ -217,6 +217,46 @@ async def debug_find_brand(brand_name: str):
         import traceback
         return {"error": str(e), "traceback": traceback.format_exc()}
 
+@app.get("/api/debug/feed-check/{brand_name}")
+async def debug_feed_check(brand_name: str):
+    """Debug: Check feed in database for a specific brand (no auth required)"""
+    try:
+        from database import SessionLocal, ProductFeed
+        db = SessionLocal()
+        feed = db.query(ProductFeed).filter(ProductFeed.id == "main").first()
+        db.close()
+        
+        if not feed or not feed.feed_json:
+            return {"error": "No feed in database"}
+        
+        data = json.loads(feed.feed_json)
+        products = data.get("products", [])
+        
+        # Find products matching brand
+        brand_lower = brand_name.lower()
+        matching = [p for p in products if brand_lower in (p.get("brand") or "").lower()]
+        with_images = [p for p in matching if p.get("image_url")]
+        
+        return {
+            "brand": brand_name,
+            "feed_generated_at": data.get("generated_at"),
+            "total_products_in_feed": len(products),
+            "matching_brand": len(matching),
+            "with_image_url": len(with_images),
+            "image_urls_loaded": len(_image_urls),
+            "sample_products": [
+                {
+                    "sku": p.get("sku"),
+                    "name": p.get("name"),
+                    "image_url": p.get("image_url", "")[:80] + "..." if p.get("image_url") else None
+                }
+                for p in matching[:5]
+            ]
+        }
+    except Exception as e:
+        import traceback
+        return {"error": str(e), "traceback": traceback.format_exc()}
+
 @app.get("/api/debug/search/{search_term}")
 async def debug_search(search_term: str):
     """Debug: Use Zoho's search API directly"""
