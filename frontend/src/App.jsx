@@ -1421,14 +1421,17 @@ function ProductsTab() {
     const selectedKey = getKeyWord(selectedBrand)
     
     let filtered = sourceProducts.filter(p => {
-      const productBrand = p.brand || ''
-      const productNorm = normalizeForMatch(productBrand)
-      const productKey = getKeyWord(productBrand)
-      
-      // Match if normalized versions contain each other OR key words match
-      return productNorm.includes(selectedNorm) || 
-             selectedNorm.includes(productNorm) ||
-             (selectedKey && productKey && (productKey.includes(selectedKey) || selectedKey.includes(productKey)))
+    const productBrand = p.brand || ''
+    if (!productBrand) return false // Skip products with no brand
+    
+    const productNorm = normalizeForMatch(productBrand)
+    const productKey = getKeyWord(productBrand)
+    
+    // Match if normalized versions contain each other OR key words match
+    return productNorm.includes(selectedNorm) ||
+              selectedNorm.includes(productNorm) ||
+             (selectedKey && productKey && productKey.length > 2 && 
+              (productKey.includes(selectedKey) || selectedKey.includes(productKey)))
     })
     
     if (search) {
