@@ -807,54 +807,33 @@ function OfflineImage({ sku, alt, className, fallbackIcon = '📦', size = 'smal
   const [checked, setChecked] = useState(false)
   
   useEffect(() => {
-    // No sku and no imageUrl - nothing to show
-    if (!sku && !imageUrl) {
-      setChecked(true)
-      return
-    }
-    
-    // Determine the fallback URL (imageUrl or Cloudinary)
-    const fallbackUrl = imageUrl || (sku ? getCloudinaryUrl(sku, size) : null)
-    
-    // If no sku, just use imageUrl directly
     if (!sku) {
-      setImageSrc(fallbackUrl)
+      // No SKU - use imageUrl directly if available
+      if (imageUrl) {
+        setImageSrc(imageUrl)
+      }
       setChecked(true)
       return
     }
     
-    // Try IndexedDB cache first, with timeout
-    let resolved = false
-    const timeoutId = setTimeout(() => {
-      // If cache check takes too long, use fallback
-      if (!resolved) {
-        resolved = true
-        console.log('OfflineImage: Cache timeout for', sku)
-        setImageSrc(fallbackUrl)
-        setChecked(true)
-      }
-    }, 500)
-    
+    // Check IndexedDB first for offline cached image
     offlineStore.getImage(sku).then(cachedData => {
-      if (resolved) return
-      resolved = true
-      clearTimeout(timeoutId)
       if (cachedData) {
+        // Use cached base64 image
         setImageSrc(cachedData)
+      } else if (imageUrl) {
+        // Use product's image_url if available (e.g. Elvang)
+        setImageSrc(imageUrl)
       } else {
-        setImageSrc(fallbackUrl)
+        // Fall back to Cloudinary CDN
+        setImageSrc(getCloudinaryUrl(sku, size))
       }
       setChecked(true)
-    }).catch(err => {
-      if (resolved) return
-      resolved = true
-      clearTimeout(timeoutId)
-      console.log('OfflineImage: Cache error for', sku, err)
-      setImageSrc(fallbackUrl)
+    }).catch(() => {
+      // Error reading cache, use imageUrl or Cloudinary
+      setImageSrc(imageUrl || getCloudinaryUrl(sku, size))
       setChecked(true)
     })
-    
-    return () => clearTimeout(timeoutId)
   }, [sku, size, imageUrl])
   
   if ((!sku && !imageUrl) || failed || !checked) {
