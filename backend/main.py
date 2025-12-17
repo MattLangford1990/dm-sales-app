@@ -541,6 +541,28 @@ async def admin_delete_agent(
         raise HTTPException(status_code=404, detail=str(e))
 
 
+@app.post("/api/admin/cleanup-brands")
+async def admin_cleanup_brands(agent: TokenData = Depends(require_admin)):
+    """Remove Elvang and GEFU from all agents' brands"""
+    from database import SessionLocal
+    from agents import AgentModel
+    
+    db = SessionLocal()
+    try:
+        agents = db.query(AgentModel).all()
+        updated = 0
+        for ag in agents:
+            if ag.brands:
+                new_brands = [b for b in ag.brands if b not in ["Elvang", "GEFU"]]
+                if len(new_brands) != len(ag.brands):
+                    ag.brands = new_brands
+                    updated += 1
+        db.commit()
+        return {"message": f"Updated {updated} agents", "removed": ["Elvang", "GEFU"]}
+    finally:
+        db.close()
+
+
 @app.post("/api/admin/refresh-cache")
 async def admin_refresh_cache(agent: TokenData = Depends(require_admin)):
     """Force refresh of the products cache (admin only)"""
