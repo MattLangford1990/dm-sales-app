@@ -302,11 +302,10 @@ export async function clearCustomers() {
 
 export async function saveImage(itemId, imageBlob) {
   console.log('offlineStore.saveImage: Saving image for', itemId, 'blob size:', imageBlob.size)
-  const database = await initDB()
-  const tx = database.transaction('images', 'readwrite')
-  const store = tx.objectStore('images')
   
-  // Convert blob to base64
+  // IMPORTANT: Convert blob to base64 BEFORE starting the transaction
+  // IndexedDB transactions auto-commit when the event loop goes idle,
+  // so any async operations (like FileReader) must complete before opening the transaction
   const base64 = await new Promise((resolve) => {
     const reader = new FileReader()
     reader.onloadend = () => resolve(reader.result)
@@ -314,6 +313,12 @@ export async function saveImage(itemId, imageBlob) {
   })
   
   console.log('offlineStore.saveImage: Converted to base64, length:', base64.length)
+  
+  // Now open the transaction and store synchronously
+  const database = await initDB()
+  const tx = database.transaction('images', 'readwrite')
+  const store = tx.objectStore('images')
+  
   store.put({ item_id: itemId, data: base64 })
   
   return new Promise((resolve, reject) => {
