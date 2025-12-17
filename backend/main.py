@@ -257,6 +257,37 @@ async def debug_feed_check(brand_name: str):
         import traceback
         return {"error": str(e), "traceback": traceback.format_exc()}
 
+@app.get("/api/debug/live-products/{brand_name}")
+async def debug_live_products(brand_name: str):
+    """Debug: Simulate what /api/products returns for a brand (no auth)"""
+    try:
+        all_zoho_items = await zoho_api.get_all_items_cached()
+        items = filter_items_by_brand(all_zoho_items, [brand_name])
+        items = [i for i in items if i.get("status") != "inactive"][:5]
+        
+        products = []
+        for item in items:
+            sku = item.get("sku", "")
+            img_url = _image_urls.get(sku) or item.get("image_url")
+            if img_url and not img_url.startswith('http'):
+                img_url = None
+            products.append({
+                "sku": sku,
+                "name": item.get("name"),
+                "image_url": img_url,
+                "image_url_type": type(img_url).__name__,
+                "raw_image_url": item.get("image_url"),
+                "from_image_urls_json": _image_urls.get(sku)
+            })
+        
+        return {
+            "brand": brand_name,
+            "products": products
+        }
+    except Exception as e:
+        import traceback
+        return {"error": str(e), "traceback": traceback.format_exc()}
+
 @app.get("/api/debug/search/{search_term}")
 async def debug_search(search_term: str):
     """Debug: Use Zoho's search API directly"""
