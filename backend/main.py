@@ -2104,7 +2104,6 @@ async def admin_delete_catalogue(
 from database import SessionLocal, ProductFeed
 
 
-@app.get("/api/products/feed")
 @app.get("/api/feed/products")
 async def get_product_feed():
     """
