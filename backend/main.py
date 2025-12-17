@@ -909,7 +909,7 @@ async def get_products(
                 "description": item.get("description", ""),
                 "rate": item.get("rate", 0),  # Selling price
                 "stock_on_hand": item.get("stock_on_hand", 0),
-                "image_url": item.get("image_url") or item.get("image_document_id"),
+                "image_url": _image_urls.get(sku) or item.get("image_url") or item.get("image_document_id"),
                 "brand": item.get("brand") or item.get("manufacturer") or item.get("cf_brand") or item.get("group_name", ""),
                 "unit": item.get("unit", "pcs"),
                 "status": item.get("status", "active"),
