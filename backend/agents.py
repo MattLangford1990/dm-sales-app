@@ -9,12 +9,12 @@ BRAND_VARIATIONS = {
     "My Flame": ["My Flame", "My Flame Lifestyle", "MyFlame"],
     "Ideas4Seasons": ["Ideas4Seasons", "Ideas 4 Seasons", "Ideas4 Seasons", "i4s"],
     "Relaxound": ["Relaxound"],
-    "Elvang Denmark": ["Elvang Denmark", "Elvang"],
+    "Elvang": ["Elvang Denmark", "Elvang"],
     "Paper Products Design": ["Paper Products Design", "ppd PAPERPRODUCTS DESIGN GmbH", "ppd", "PAPERPRODUCTS DESIGN"],
     "GEFU": ["GEFU", "Gefu"],
 }
 
-ALL_BRANDS = ["Remember", "Räder", "Relaxound", "My Flame", "Elvang Denmark", "Paper Products Design", "Ideas4Seasons", "GEFU"]
+ALL_BRANDS = ["Remember", "Räder", "Relaxound", "My Flame", "Elvang", "Paper Products Design", "Ideas4Seasons", "GEFU"]
 
 # Agents who can view all orders and access admin panel
 ADMIN_AGENTS = ["sammie", "georgia", "matt"]
