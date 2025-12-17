@@ -1566,7 +1566,7 @@ function ProductsTab() {
         <div className="flex-1 overflow-y-auto p-4">
           {agent?.brands?.length > 0 ? (
             <div className="grid grid-cols-2 gap-4">
-              {agent.brands.map(brand => (
+              {agent.brands.filter(b => !['Elvang', 'Elvang Denmark', 'GEFU'].includes(b)).map(brand => (
                 <button
                   key={brand}
                   onClick={() => setSelectedBrand(brand)}
