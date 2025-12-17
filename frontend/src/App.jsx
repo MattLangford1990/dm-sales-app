@@ -812,6 +812,13 @@ function OfflineImage({ sku, alt, className, fallbackIcon = '📦', size = 'smal
       return
     }
     
+    // If we have imageUrl but no sku, just use imageUrl directly
+    if (!sku && imageUrl) {
+      setImageSrc(imageUrl)
+      setChecked(true)
+      return
+    }
+    
     // Check IndexedDB first for offline cached image
     offlineStore.getImage(sku).then(cachedData => {
       if (cachedData) {
@@ -832,7 +839,7 @@ function OfflineImage({ sku, alt, className, fallbackIcon = '📦', size = 'smal
     })
   }, [sku, size, imageUrl])
   
-  if (!sku || failed || !checked) {
+  if ((!sku && !imageUrl) || failed || !checked) {
     return (
       <div className={`flex items-center justify-center bg-gray-100 ${className}`}>
         <span className="text-4xl">{fallbackIcon}</span>
