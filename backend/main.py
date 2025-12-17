@@ -26,6 +26,19 @@ def load_pack_quantities():
 
 _pack_quantities = load_pack_quantities()
 
+# Load image URLs (Cloudinary URLs for Elvang etc)
+IMAGE_URLS_FILE = os.path.join(os.path.dirname(__file__), "image_urls.json")
+def load_image_urls():
+    if os.path.exists(IMAGE_URLS_FILE):
+        with open(IMAGE_URLS_FILE, "r") as f:
+            urls = json.load(f)
+            print(f"STARTUP: Loaded {len(urls)} image URLs from image_urls.json")
+            return urls
+    print("STARTUP: No image_urls.json found")
+    return {}
+
+_image_urls = load_image_urls()
+
 settings = get_settings()
 security = HTTPBearer()
 
@@ -695,6 +708,8 @@ async def sync_products(
         products = []
         for item in all_items:
             sku = item.get("sku", "")
+            # Check for custom image URL first (e.g. Elvang Cloudinary), then fall back to Zoho
+            image_url = _image_urls.get(sku) or item.get("image_url") or ""
             products.append({
                 "item_id": item.get("item_id"),
                 "name": item.get("name"),
@@ -706,7 +721,7 @@ async def sync_products(
                 "brand": item.get("brand") or item.get("manufacturer") or "",
                 "unit": item.get("unit", "pcs"),
                 "pack_qty": _pack_quantities.get(sku),
-                "image_url": item.get("image_url") or ""  # Direct Zoho CDN URL - no API call needed!
+                "image_url": image_url
             })
         
         print(f"SYNC: Returning {len(products)} products for {agent.agent_name}")
