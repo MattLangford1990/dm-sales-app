@@ -819,24 +819,42 @@ function OfflineImage({ sku, alt, className, fallbackIcon = '📦', size = 'smal
       return
     }
     
-    // Check IndexedDB first for offline cached image
+    // Calculate fallback URL upfront
+    const fallbackUrl = effectiveImageUrl || getCloudinaryUrl(sku, size)
+    
+    // Set a timeout - if IndexedDB takes too long, use fallback
+    let resolved = false
+    const timeout = setTimeout(() => {
+      if (!resolved) {
+        resolved = true
+        setImageSrc(fallbackUrl)
+        setChecked(true)
+      }
+    }, 300)
+    
+    // Try IndexedDB cache
     offlineStore.getImage(sku).then(cachedData => {
+      if (resolved) return
+      resolved = true
+      clearTimeout(timeout)
+      
       if (cachedData) {
-        // Use cached base64 image
         setImageSrc(cachedData)
-      } else if (effectiveImageUrl) {
-        // Use product's image_url if available (e.g. Elvang)
-        setImageSrc(effectiveImageUrl)
       } else {
-        // Fall back to Cloudinary CDN
-        setImageSrc(getCloudinaryUrl(sku, size))
+        setImageSrc(fallbackUrl)
       }
       setChecked(true)
     }).catch(() => {
-      // Error reading cache, use imageUrl or Cloudinary
-      setImageSrc(effectiveImageUrl || getCloudinaryUrl(sku, size))
+      if (resolved) return
+      resolved = true
+      clearTimeout(timeout)
+      setImageSrc(fallbackUrl)
       setChecked(true)
     })
+    
+    return () => {
+      clearTimeout(timeout)
+    }
   }, [sku, size, effectiveImageUrl])
   
   if ((!sku && !effectiveImageUrl) || failed || !checked) {
