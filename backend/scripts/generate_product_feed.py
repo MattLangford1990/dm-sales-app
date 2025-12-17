@@ -80,7 +80,7 @@ async def fetch_all_products():
     return all_items
 
 
-def transform_product(item, pack_quantities):
+def transform_product(item, pack_quantities, image_urls):
     """Transform Zoho item to our product format"""
     sku = item.get("sku", "")
     return {
@@ -94,7 +94,8 @@ def transform_product(item, pack_quantities):
         "brand": item.get("brand") or item.get("manufacturer") or "",
         "unit": item.get("unit", "pcs"),
         "pack_qty": pack_quantities.get(sku),
-        "status": item.get("status", "active")
+        "status": item.get("status", "active"),
+        "image_url": image_urls.get(sku, "")
     }
 
 
@@ -143,6 +144,14 @@ async def main():
             pack_quantities = json.load(f)
         print(f"Loaded {len(pack_quantities)} pack quantities")
     
+    # Load image URLs (Cloudinary URLs for Elvang etc)
+    image_urls_file = os.path.join(os.path.dirname(os.path.dirname(__file__)), "image_urls.json")
+    image_urls = {}
+    if os.path.exists(image_urls_file):
+        with open(image_urls_file) as f:
+            image_urls = json.load(f)
+        print(f"Loaded {len(image_urls)} image URLs")
+    
     # Fetch all products from Zoho
     print("\n1. Fetching products from Zoho...")
     all_items = await fetch_all_products()
@@ -154,7 +163,7 @@ async def main():
     
     # Transform to our format
     print("\n2. Transforming products...")
-    products = [transform_product(item, pack_quantities) for item in active_items]
+    products = [transform_product(item, pack_quantities, image_urls) for item in active_items]
     
     # Sort by SKU
     products.sort(key=lambda x: (x.get("sku") or "").upper())
