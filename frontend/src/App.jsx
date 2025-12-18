@@ -1604,11 +1604,6 @@ function ProductsTab() {
               🇩🇪 Stock
             </span>
           )}
-          {usingOffline && (
-            <span className="ml-auto text-xs bg-orange-100 text-orange-700 px-2 py-1 rounded-full">
-              Offline
-            </span>
-          )}
         </div>
         <div className="flex gap-2">
           <input
