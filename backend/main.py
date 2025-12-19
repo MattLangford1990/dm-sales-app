@@ -2174,7 +2174,7 @@ class CatalogueReorderItem(BaseModel):
 
 @app.post("/api/admin/catalogues/reorder")
 async def admin_reorder_catalogues(
-    items: list[CatalogueReorderItem],
+    items: List[CatalogueReorderItem],
     agent: TokenData = Depends(require_admin)
 ):
     """Reorder catalogues (admin only)"""
