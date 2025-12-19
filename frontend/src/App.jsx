@@ -2928,7 +2928,8 @@ function QuickOrderTab() {
   const handleAddAll = () => {
     const foundItems = results.filter(r => r.found)
     foundItems.forEach(r => {
-      addToCart(r.product, r.qty)
+      const packQty = r.product.pack_qty || 1
+      addToCart(r.product, r.qty * packQty)
     })
     // Clear after adding
     setInput('')
@@ -2936,7 +2937,8 @@ function QuickOrderTab() {
   }
   
   const handleAddSingle = (result) => {
-    addToCart(result.product, result.qty)
+    const packQty = result.product.pack_qty || 1
+    addToCart(result.product, result.qty * packQty)
     // Remove from results
     setResults(prev => prev.filter(r => r.sku !== result.sku))
   }
@@ -3002,7 +3004,7 @@ function QuickOrderTab() {
                     <div className="flex-1">
                       <div className="flex items-center gap-2">
                         <span className="font-mono font-bold">{result.sku}</span>
-                        <span className="text-gray-500">× {result.qty}</span>
+                        <span className="text-gray-500">× {result.qty}{result.found && result.product.pack_qty > 1 ? ` (${result.qty * result.product.pack_qty} units)` : ''}</span>
                         {result.partial && (
                           <span className="text-xs bg-yellow-100 text-yellow-700 px-2 py-0.5 rounded">partial match</span>
                         )}
@@ -3010,7 +3012,12 @@ function QuickOrderTab() {
                       {result.found ? (
                         <div className="mt-1">
                           <p className="text-sm text-gray-800">{result.product.name}</p>
-                          <p className="text-sm text-primary-600 font-medium">£{result.product.rate?.toFixed(2)} each</p>
+                          <p className="text-sm text-primary-600 font-medium">
+                            £{result.product.rate?.toFixed(2)} each
+                            {result.product.pack_qty > 1 && (
+                              <span className="text-blue-600 ml-2">(pack of {result.product.pack_qty})</span>
+                            )}
+                          </p>
                           <p className="text-xs text-gray-500">
                             {result.product.stock_on_hand > 0 
                               ? `${result.product.stock_on_hand} in stock` 
