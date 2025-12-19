@@ -3249,6 +3249,7 @@ function AdminTab() {
   const [editingAgent, setEditingAgent] = useState(null)
   const [showNewAgent, setShowNewAgent] = useState(false)
   const [showUploadCatalogue, setShowUploadCatalogue] = useState(false)
+  const [editingCatalogue, setEditingCatalogue] = useState(null)
   const [imageSync, setImageSync] = useState({ running: false, result: null })
   const { addToast } = useToast()
   
@@ -3314,18 +3315,26 @@ function AdminTab() {
     }
   }
   
-  const handleSaveCatalogue = async (catalogueData) => {
+  const handleSaveCatalogue = async (catalogueData, isEdit = false) => {
     try {
-      await apiRequest('/admin/catalogues', {
-        method: 'POST',
-        body: JSON.stringify(catalogueData)
-      })
-      
-      addToast('Catalogue added successfully', 'success')
-      setShowUploadCatalogue(false)
+      if (isEdit && catalogueData.id) {
+        await apiRequest(`/admin/catalogues/${catalogueData.id}`, {
+          method: 'PUT',
+          body: JSON.stringify(catalogueData)
+        })
+        addToast('Catalogue updated successfully', 'success')
+        setEditingCatalogue(null)
+      } else {
+        await apiRequest('/admin/catalogues', {
+          method: 'POST',
+          body: JSON.stringify(catalogueData)
+        })
+        addToast('Catalogue added successfully', 'success')
+        setShowUploadCatalogue(false)
+      }
       loadData()
     } catch (err) {
-      addToast('Failed to add: ' + err.message, 'error')
+      addToast('Failed to save: ' + err.message, 'error')
     }
   }
   
@@ -3337,6 +3346,31 @@ function AdminTab() {
       loadData()
     } catch (err) {
       addToast('Failed to delete: ' + err.message, 'error')
+    }
+  }
+  
+  const handleMoveCatalogue = async (index, direction) => {
+    const newCatalogues = [...catalogues]
+    const targetIndex = direction === 'up' ? index - 1 : index + 1
+    
+    if (targetIndex < 0 || targetIndex >= newCatalogues.length) return
+    
+    // Swap positions
+    [newCatalogues[index], newCatalogues[targetIndex]] = [newCatalogues[targetIndex], newCatalogues[index]]
+    
+    // Optimistically update UI
+    setCatalogues(newCatalogues)
+    
+    // Save new order to backend
+    try {
+      const reorderData = newCatalogues.map((cat, idx) => ({ id: cat.id, sort_order: idx }))
+      await apiRequest('/admin/catalogues/reorder', {
+        method: 'POST',
+        body: JSON.stringify(reorderData)
+      })
+    } catch (err) {
+      addToast('Failed to reorder: ' + err.message, 'error')
+      loadData() // Reload to get correct order
     }
   }
   
@@ -3543,9 +3577,33 @@ function AdminTab() {
           </div>
         ) : (
           <div className="divide-y divide-gray-100">
-            {catalogues.map(cat => (
+            {catalogues.map((cat, index) => (
               <div key={cat.id} className="p-4">
-                <div className="flex items-start justify-between">
+                <div className="flex items-start gap-3">
+                  {/* Reorder buttons */}
+                  <div className="flex flex-col gap-1 pt-1">
+                    <button
+                      onClick={() => handleMoveCatalogue(index, 'up')}
+                      disabled={index === 0}
+                      className={`w-6 h-6 flex items-center justify-center rounded text-sm ${
+                        index === 0 ? 'text-gray-300 cursor-not-allowed' : 'text-gray-500 hover:bg-gray-100'
+                      }`}
+                      title="Move up"
+                    >
+                      ▲
+                    </button>
+                    <button
+                      onClick={() => handleMoveCatalogue(index, 'down')}
+                      disabled={index === catalogues.length - 1}
+                      className={`w-6 h-6 flex items-center justify-center rounded text-sm ${
+                        index === catalogues.length - 1 ? 'text-gray-300 cursor-not-allowed' : 'text-gray-500 hover:bg-gray-100'
+                      }`}
+                      title="Move down"
+                    >
+                      ▼
+                    </button>
+                  </div>
+                  
                   <div className="flex-1">
                     <div className="flex items-center gap-2">
                       <span className="text-xl">📕</span>
@@ -3561,12 +3619,21 @@ function AdminTab() {
                       Updated: {cat.updated} {cat.uploaded_by && `by ${cat.uploaded_by}`}
                     </div>
                   </div>
-                  <button
-                    onClick={() => handleDeleteCatalogue(cat.id)}
-                    className="text-red-600 text-sm font-medium"
-                  >
-                    Delete
-                  </button>
+                  
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => setEditingCatalogue(cat)}
+                      className="text-blue-600 text-sm font-medium"
+                    >
+                      Edit
+                    </button>
+                    <button
+                      onClick={() => handleDeleteCatalogue(cat.id)}
+                      className="text-red-600 text-sm font-medium"
+                    >
+                      Delete
+                    </button>
+                  </div>
                 </div>
               </div>
             ))}
@@ -3578,8 +3645,18 @@ function AdminTab() {
       {showUploadCatalogue && (
         <CatalogueUploadModal
           availableBrands={availableBrands}
-          onSave={handleSaveCatalogue}
+          onSave={(data) => handleSaveCatalogue(data, false)}
           onClose={() => setShowUploadCatalogue(false)}
+        />
+      )}
+      
+      {/* Edit Catalogue Modal */}
+      {editingCatalogue && (
+        <CatalogueUploadModal
+          availableBrands={availableBrands}
+          catalogue={editingCatalogue}
+          onSave={(data) => handleSaveCatalogue(data, true)}
+          onClose={() => setEditingCatalogue(null)}
         />
       )}
     </div>
@@ -3827,12 +3904,13 @@ function NewAgentModal({ availableBrands, onSave, onClose }) {
   )
 }
 
-function CatalogueUploadModal({ availableBrands, onSave, onClose }) {
-  const [url, setUrl] = useState('')
-  const [brand, setBrand] = useState('')
-  const [name, setName] = useState('')
-  const [description, setDescription] = useState('')
-  const [sizeMb, setSizeMb] = useState('')
+function CatalogueUploadModal({ availableBrands, catalogue, onSave, onClose }) {
+  const isEditing = !!catalogue
+  const [url, setUrl] = useState(catalogue?.url || '')
+  const [brand, setBrand] = useState(catalogue?.brand || '')
+  const [name, setName] = useState(catalogue?.name || '')
+  const [description, setDescription] = useState(catalogue?.description || '')
+  const [sizeMb, setSizeMb] = useState(catalogue?.size_mb?.toString() || '')
   const [saving, setSaving] = useState(false)
   
   const handleSubmit = async (e) => {
@@ -3844,7 +3922,11 @@ function CatalogueUploadModal({ availableBrands, onSave, onClose }) {
     }
     
     setSaving(true)
-    await onSave({ url, brand, name, description, size_mb: parseFloat(sizeMb) || 0 })
+    const data = { url, brand, name, description, size_mb: parseFloat(sizeMb) || 0 }
+    if (isEditing) {
+      data.id = catalogue.id
+    }
+    await onSave(data)
     setSaving(false)
   }
   
@@ -3852,7 +3934,7 @@ function CatalogueUploadModal({ availableBrands, onSave, onClose }) {
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
       <div className="bg-white rounded-2xl w-full max-w-md max-h-[90vh] overflow-auto">
         <div className="p-4 border-b border-gray-200 flex justify-between items-center">
-          <h2 className="text-lg font-bold">Add Catalogue</h2>
+          <h2 className="text-lg font-bold">{isEditing ? 'Edit Catalogue' : 'Add Catalogue'}</h2>
           <button onClick={onClose} className="text-gray-500 text-2xl">&times;</button>
         </div>
         
@@ -3924,7 +4006,7 @@ function CatalogueUploadModal({ availableBrands, onSave, onClose }) {
             disabled={saving || !url || !brand || !name}
             className="w-full py-3 bg-green-600 text-white rounded-xl font-semibold disabled:bg-gray-400"
           >
-            {saving ? 'Saving...' : 'Add Catalogue'}
+            {saving ? 'Saving...' : (isEditing ? 'Save Changes' : 'Add Catalogue')}
           </button>
         </form>
       </div>

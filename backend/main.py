@@ -1990,10 +1990,10 @@ async def debug_image_info():
 from database import SessionLocal, Catalogue as CatalogueModel
 
 def load_catalogues():
-    """Load all catalogues from database"""
+    """Load all catalogues from database, sorted by sort_order"""
     db = SessionLocal()
     try:
-        catalogues = db.query(CatalogueModel).all()
+        catalogues = db.query(CatalogueModel).order_by(CatalogueModel.sort_order.asc(), CatalogueModel.created_at.desc()).all()
         return [
             {
                 "id": cat.id,
@@ -2002,6 +2002,7 @@ def load_catalogues():
                 "description": cat.description or "",
                 "url": cat.url,
                 "size_mb": cat.size_mb or 0,
+                "sort_order": cat.sort_order or 0,
                 "updated": cat.updated_at.strftime("%Y-%m-%d") if cat.updated_at else "",
                 "added_by": cat.added_by or ""
             }
@@ -2024,8 +2025,11 @@ def save_catalogue(catalogue_data: dict):
             cat.url = catalogue_data.get("url", cat.url)
             cat.size_mb = catalogue_data.get("size_mb", cat.size_mb)
             cat.added_by = catalogue_data.get("added_by", cat.added_by)
+            if "sort_order" in catalogue_data:
+                cat.sort_order = catalogue_data.get("sort_order")
         else:
-            # Create new
+            # Create new - get max sort_order and add to end
+            max_order = db.query(CatalogueModel).count()
             cat = CatalogueModel(
                 id=catalogue_data["id"],
                 brand=catalogue_data["brand"],
@@ -2033,7 +2037,8 @@ def save_catalogue(catalogue_data: dict):
                 description=catalogue_data.get("description", ""),
                 url=catalogue_data["url"],
                 size_mb=catalogue_data.get("size_mb", 0),
-                added_by=catalogue_data.get("added_by", "")
+                added_by=catalogue_data.get("added_by", ""),
+                sort_order=catalogue_data.get("sort_order", max_order)
             )
             db.add(cat)
         db.commit()
@@ -2160,6 +2165,29 @@ async def admin_delete_catalogue(
         raise HTTPException(status_code=404, detail="Catalogue not found")
     
     return {"message": "Catalogue deleted successfully"}
+
+
+class CatalogueReorderItem(BaseModel):
+    id: str
+    sort_order: int
+
+
+@app.post("/api/admin/catalogues/reorder")
+async def admin_reorder_catalogues(
+    items: list[CatalogueReorderItem],
+    agent: TokenData = Depends(require_admin)
+):
+    """Reorder catalogues (admin only)"""
+    db = SessionLocal()
+    try:
+        for item in items:
+            cat = db.query(CatalogueModel).filter(CatalogueModel.id == item.id).first()
+            if cat:
+                cat.sort_order = item.sort_order
+        db.commit()
+        return {"message": "Catalogues reordered successfully"}
+    finally:
+        db.close()
 
 
 # ============ Static Product Feed ============

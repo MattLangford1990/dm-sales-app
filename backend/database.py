@@ -51,6 +51,7 @@ class Catalogue(Base):
     url = Column(String, nullable=False)  # External URL to PDF
     size_mb = Column(Float, default=0)
     added_by = Column(String, default="")
+    sort_order = Column(Float, default=0)  # For manual ordering (lower = first)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
