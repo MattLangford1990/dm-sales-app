@@ -1,6 +1,6 @@
 # Database connection and models for persistent storage
 import os
-from sqlalchemy import create_engine, Column, String, Float, Boolean, JSON, DateTime, Text
+from sqlalchemy import create_engine, Column, String, Float, Boolean, JSON, DateTime, Text, text
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
 from datetime import datetime
@@ -70,9 +70,39 @@ class ProductFeed(Base):
 # ============ Database Initialization ============
 
 def init_db():
-    """Create all tables"""
+    """Create all tables and run migrations"""
     Base.metadata.create_all(bind=engine)
     print("DATABASE: Tables created/verified")
+    
+    # Run migrations for new columns
+    run_migrations()
+
+
+def run_migrations():
+    """Add any missing columns to existing tables"""
+    with engine.connect() as conn:
+        # Check if sort_order column exists in catalogues table
+        try:
+            if DATABASE_URL:  # PostgreSQL
+                result = conn.execute(text("""
+                    SELECT column_name FROM information_schema.columns 
+                    WHERE table_name = 'catalogues' AND column_name = 'sort_order'
+                """))
+                if result.fetchone() is None:
+                    print("DATABASE: Adding sort_order column to catalogues...")
+                    conn.execute(text("ALTER TABLE catalogues ADD COLUMN sort_order FLOAT DEFAULT 0"))
+                    conn.commit()
+                    print("DATABASE: sort_order column added")
+            else:  # SQLite
+                # For SQLite, try to add and catch if exists
+                try:
+                    conn.execute(text("ALTER TABLE catalogues ADD COLUMN sort_order FLOAT DEFAULT 0"))
+                    conn.commit()
+                    print("DATABASE: sort_order column added (SQLite)")
+                except Exception:
+                    pass  # Column already exists
+        except Exception as e:
+            print(f"DATABASE: Migration check - {e}")
 
 
 def get_db():
