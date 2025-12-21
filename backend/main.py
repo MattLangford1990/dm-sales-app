@@ -2516,6 +2516,36 @@ class ReorderCreatePORequest(BaseModel):
     notes: Optional[str] = None
 
 
+@app.get("/api/admin/reorder/test")
+async def admin_reorder_test(agent: TokenData = Depends(require_admin)):
+    """Quick test endpoint to verify reorder system is working"""
+    print("REORDER TEST: Endpoint hit")
+    try:
+        # Test basic Zoho connectivity
+        items = await zoho_api.get_all_items_cached()
+        print(f"REORDER TEST: Got {len(items)} items from cache")
+        
+        # Test invoice fetching
+        from datetime import datetime, timedelta
+        end_date = datetime.now().strftime("%Y-%m-%d")
+        start_date = (datetime.now() - timedelta(days=30)).strftime("%Y-%m-%d")
+        print(f"REORDER TEST: Fetching invoices from {start_date} to {end_date}")
+        
+        invoices = await zoho_api.get_invoices_by_date_range(start_date, end_date)
+        print(f"REORDER TEST: Got {len(invoices)} invoices")
+        
+        return {
+            "status": "ok",
+            "items_count": len(items),
+            "invoices_count": len(invoices),
+            "date_range": f"{start_date} to {end_date}"
+        }
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return {"status": "error", "message": str(e)}
+
+
 @app.get("/api/admin/reorder/analysis")
 async def admin_reorder_analysis(
     brands: Optional[str] = None,
@@ -2531,13 +2561,17 @@ async def admin_reorder_analysis(
         brands: Comma-separated list of brands to analyze (optional)
     """
     try:
+        print("REORDER ANALYSIS: Endpoint hit")
         # Parse brand filter
         brand_filter = None
         if brands:
             brand_filter = [b.strip() for b in brands.split(",")]
+            print(f"REORDER ANALYSIS: Brand filter = {brand_filter}")
         
         # Run analysis
+        print("REORDER ANALYSIS: Starting run_reorder_analysis...")
         supplier_orders = await reorder_service.run_reorder_analysis(brand_filter)
+        print(f"REORDER ANALYSIS: Got {len(supplier_orders)} supplier orders")
         
         # Format for API response
         report = reorder_service.format_analysis_report(supplier_orders)
