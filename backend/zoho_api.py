@@ -253,6 +253,214 @@ async def get_sales_order(salesorder_id: str) -> dict:
     return await zoho_request("GET", f"salesorders/{salesorder_id}")
 
 
+# ============ Purchase Orders ============
+
+async def get_purchase_orders(page: int = 1, per_page: int = 200, status: str = None) -> dict:
+    """Get purchase orders from Zoho Inventory
+    
+    Args:
+        page: Page number
+        per_page: Items per page (max 200)
+        status: Filter by status - 'open', 'billed', 'cancelled', etc.
+    """
+    params = {
+        "page": page,
+        "per_page": per_page,
+        "sort_column": "date",
+        "sort_order": "D"  # Descending (newest first)
+    }
+    if status:
+        params["status"] = status
+    
+    return await zoho_request("GET", "purchaseorders", params=params)
+
+
+async def get_purchase_order(purchaseorder_id: str) -> dict:
+    """Get a single purchase order with line items"""
+    return await zoho_request("GET", f"purchaseorders/{purchaseorder_id}")
+
+
+async def get_all_open_purchase_orders() -> list:
+    """Get ALL open/ordered purchase orders with line item details.
+    
+    Returns list of POs with their line items for calculating effective stock.
+    """
+    all_pos = []
+    page = 1
+    
+    while True:
+        # Get POs with 'ordered' or 'open' status
+        response = await get_purchase_orders(page=page, per_page=200)
+        pos = response.get("purchaseorders", [])
+        
+        # Filter to only open/ordered POs
+        open_pos = [po for po in pos if po.get("status") in ("open", "ordered", "draft")]
+        
+        # Fetch full details for each PO to get line items
+        for po in open_pos:
+            try:
+                full_po = await get_purchase_order(po["purchaseorder_id"])
+                po_data = full_po.get("purchaseorder", {})
+                if po_data:
+                    all_pos.append(po_data)
+            except Exception as e:
+                print(f"ZOHO: Error fetching PO {po.get('purchaseorder_number')}: {e}")
+        
+        if not response.get("page_context", {}).get("has_more_page", False):
+            break
+        page += 1
+        if page > 50:  # Safety limit
+            break
+    
+    print(f"ZOHO: Fetched {len(all_pos)} open purchase orders")
+    return all_pos
+
+
+async def create_purchase_order(po_data: dict) -> dict:
+    """Create a new purchase order in Zoho
+    
+    Args:
+        po_data: dict containing:
+            - vendor_id: Zoho vendor/supplier ID
+            - line_items: list of {item_id, quantity, rate}
+            - expected_delivery_date: optional YYYY-MM-DD
+            - notes: optional
+    """
+    return await zoho_request("POST", "purchaseorders", json=po_data)
+
+
+# ============ Vendors / Suppliers ============
+
+async def get_vendors(page: int = 1, per_page: int = 200, search: str = None) -> dict:
+    """Get vendors/suppliers from Zoho Inventory"""
+    params = {
+        "page": page,
+        "per_page": per_page,
+        "contact_type": "vendor"
+    }
+    if search:
+        params["search_text"] = search
+    
+    return await zoho_request("GET", "contacts", params=params)
+
+
+async def get_all_vendors() -> list:
+    """Get all vendors from Zoho"""
+    all_vendors = []
+    page = 1
+    
+    while True:
+        response = await get_vendors(page=page, per_page=200)
+        vendors = response.get("contacts", [])
+        all_vendors.extend(vendors)
+        
+        if not response.get("page_context", {}).get("has_more_page", False):
+            break
+        page += 1
+        if page > 10:  # Safety limit
+            break
+    
+    return all_vendors
+
+
+# ============ Sales History for Velocity Calculation ============
+
+async def get_sales_orders_by_date_range(start_date: str, end_date: str) -> list:
+    """Get all sales orders within a date range.
+    
+    Args:
+        start_date: YYYY-MM-DD format
+        end_date: YYYY-MM-DD format
+        
+    Returns:
+        List of sales order summaries (not full details)
+    """
+    all_orders = []
+    page = 1
+    
+    while True:
+        params = {
+            "page": page,
+            "per_page": 200,
+            "date_start": start_date,
+            "date_end": end_date,
+            "sort_column": "date",
+            "sort_order": "A"  # Ascending by date
+        }
+        
+        response = await zoho_request("GET", "salesorders", params=params)
+        orders = response.get("salesorders", [])
+        all_orders.extend(orders)
+        
+        if not response.get("page_context", {}).get("has_more_page", False):
+            break
+        page += 1
+        if page > 100:  # Safety limit (~20k orders)
+            break
+    
+    print(f"ZOHO: Fetched {len(all_orders)} sales orders from {start_date} to {end_date}")
+    return all_orders
+
+
+async def get_sales_order_line_items(salesorder_id: str) -> list:
+    """Get line items for a single sales order"""
+    response = await get_sales_order(salesorder_id)
+    order = response.get("salesorder", {})
+    return order.get("line_items", [])
+
+
+async def get_invoices_by_date_range(start_date: str, end_date: str) -> list:
+    """Get all invoices within a date range.
+    
+    Invoices represent actual sales (fulfilled orders).
+    Better than sales orders for velocity calculation.
+    """
+    all_invoices = []
+    page = 1
+    
+    while True:
+        params = {
+            "page": page,
+            "per_page": 200,
+            "date_start": start_date,
+            "date_end": end_date,
+            "sort_column": "date",
+            "sort_order": "A"
+        }
+        
+        response = await zoho_request("GET", "invoices", params=params)
+        invoices = response.get("invoices", [])
+        all_invoices.extend(invoices)
+        
+        if not response.get("page_context", {}).get("has_more_page", False):
+            break
+        page += 1
+        if page > 100:
+            break
+    
+    print(f"ZOHO: Fetched {len(all_invoices)} invoices from {start_date} to {end_date}")
+    return all_invoices
+
+
+async def get_invoice(invoice_id: str) -> dict:
+    """Get a single invoice with line items"""
+    return await zoho_request("GET", f"invoices/{invoice_id}")
+
+
+async def get_sales_by_item_report(start_date: str, end_date: str) -> dict:
+    """Get sales by item report - most efficient way to get velocity data.
+    
+    This report endpoint returns aggregated sales data by SKU,
+    which is exactly what we need for velocity calculation.
+    """
+    params = {
+        "from_date": start_date,
+        "to_date": end_date
+    }
+    
+    return await zoho_request("GET", "reports/salesbyitem", params=params)
+
+
 # ============ Images ============
 
 async def get_item_image(item_id: str) -> bytes:

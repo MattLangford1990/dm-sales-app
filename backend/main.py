@@ -2505,6 +2505,277 @@ async def get_all_german_stock():
     }
 
 
+# ============ Stock Reorder System ============
+
+import reorder_service
+
+
+class ReorderCreatePORequest(BaseModel):
+    supplier: str
+    items: List[Dict]  # List of {sku, item_id, quantity, cost_price}
+    notes: Optional[str] = None
+
+
+@app.get("/api/admin/reorder/analysis")
+async def admin_reorder_analysis(
+    brands: Optional[str] = None,
+    agent: TokenData = Depends(require_admin)
+):
+    """
+    Run stock reorder analysis (admin only).
+    
+    Returns all SKUs that need reordering, grouped by supplier,
+    with minimum order thresholds and top-up candidates.
+    
+    Query params:
+        brands: Comma-separated list of brands to analyze (optional)
+    """
+    try:
+        # Parse brand filter
+        brand_filter = None
+        if brands:
+            brand_filter = [b.strip() for b in brands.split(",")]
+        
+        # Run analysis
+        supplier_orders = await reorder_service.run_reorder_analysis(brand_filter)
+        
+        # Format for API response
+        report = reorder_service.format_analysis_report(supplier_orders)
+        
+        return report
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/admin/reorder/create-po")
+async def admin_create_purchase_order(
+    request: ReorderCreatePORequest,
+    agent: TokenData = Depends(require_admin)
+):
+    """
+    Create a purchase order in Zoho (admin only).
+    
+    Creates a PO with the specified items and quantities.
+    """
+    try:
+        # Find vendor ID for this supplier
+        vendors = await zoho_api.get_all_vendors()
+        vendor = None
+        for v in vendors:
+            vendor_name = v.get("contact_name", "") or v.get("company_name", "")
+            if request.supplier.lower() in vendor_name.lower():
+                vendor = v
+                break
+        
+        if not vendor:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Vendor '{request.supplier}' not found in Zoho. Please add the vendor first."
+            )
+        
+        # Build line items
+        line_items = []
+        for item in request.items:
+            line_items.append({
+                "item_id": item["item_id"],
+                "quantity": item["quantity"],
+                "rate": item["cost_price"]
+            })
+        
+        # Expected delivery date (3 weeks from now)
+        expected_date = (datetime.now() + timedelta(weeks=3)).strftime("%Y-%m-%d")
+        
+        # Create PO data
+        po_data = {
+            "vendor_id": vendor["contact_id"],
+            "line_items": line_items,
+            "expected_delivery_date": expected_date,
+            "notes": request.notes or f"Auto-generated reorder by {agent.agent_name}"
+        }
+        
+        # Create in Zoho
+        response = await zoho_api.create_purchase_order(po_data)
+        po = response.get("purchaseorder", {})
+        
+        return {
+            "success": True,
+            "purchaseorder_id": po.get("purchaseorder_id"),
+            "purchaseorder_number": po.get("purchaseorder_number"),
+            "vendor": vendor.get("contact_name"),
+            "total": po.get("total"),
+            "expected_delivery_date": expected_date,
+            "message": f"Purchase order {po.get('purchaseorder_number')} created successfully"
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/admin/reorder/export-excel")
+async def admin_export_reorder_excel(
+    request: ReorderCreatePORequest,
+    agent: TokenData = Depends(require_admin)
+):
+    """
+    Export purchase order as Excel file (admin only).
+    
+    Returns an Excel file ready to email to supplier.
+    """
+    try:
+        from openpyxl import Workbook
+        from openpyxl.styles import Font, Alignment, Border, Side, PatternFill
+        
+        wb = Workbook()
+        ws = wb.active
+        ws.title = "Purchase Order"
+        
+        # Styling
+        header_font = Font(bold=True, color="FFFFFF")
+        header_fill = PatternFill(start_color="1e3a5f", end_color="1e3a5f", fill_type="solid")
+        header_alignment = Alignment(horizontal="center", vertical="center")
+        thin_border = Border(
+            left=Side(style='thin'),
+            right=Side(style='thin'),
+            top=Side(style='thin'),
+            bottom=Side(style='thin')
+        )
+        
+        # Column widths
+        ws.column_dimensions['A'].width = 18  # SKU
+        ws.column_dimensions['B'].width = 50  # Description
+        ws.column_dimensions['C'].width = 10  # Qty
+        ws.column_dimensions['D'].width = 12  # Unit Price
+        ws.column_dimensions['E'].width = 12  # Total
+        
+        # Title row
+        ws.merge_cells('A1:E1')
+        ws['A1'] = f"Purchase Order - {request.supplier}"
+        ws['A1'].font = Font(bold=True, size=14)
+        ws['A1'].alignment = Alignment(horizontal="center")
+        
+        # Date row
+        ws['A2'] = f"Date: {datetime.now().strftime('%Y-%m-%d')}"
+        ws['A2'].font = Font(italic=True)
+        
+        # Headers
+        headers = ['SKU', 'Description', 'Qty', 'Unit Price (€)', 'Total (€)']
+        for col, header in enumerate(headers, 1):
+            cell = ws.cell(row=4, column=col, value=header)
+            cell.font = header_font
+            cell.fill = header_fill
+            cell.alignment = header_alignment
+            cell.border = thin_border
+        
+        # Data rows
+        row = 5
+        grand_total = 0
+        
+        for item in request.items:
+            line_total = item["quantity"] * item["cost_price"]
+            grand_total += line_total
+            
+            ws.cell(row=row, column=1, value=item["sku"]).border = thin_border
+            ws.cell(row=row, column=2, value=item.get("name", "")).border = thin_border
+            
+            qty_cell = ws.cell(row=row, column=3, value=item["quantity"])
+            qty_cell.border = thin_border
+            qty_cell.alignment = Alignment(horizontal="center")
+            
+            price_cell = ws.cell(row=row, column=4, value=item["cost_price"])
+            price_cell.number_format = '€#,##0.00'
+            price_cell.border = thin_border
+            
+            total_cell = ws.cell(row=row, column=5, value=line_total)
+            total_cell.number_format = '€#,##0.00'
+            total_cell.border = thin_border
+            
+            row += 1
+        
+        # Grand total
+        row += 1
+        ws.cell(row=row, column=4, value="TOTAL:").font = Font(bold=True)
+        total_cell = ws.cell(row=row, column=5, value=grand_total)
+        total_cell.font = Font(bold=True)
+        total_cell.number_format = '€#,##0.00'
+        
+        # Notes
+        if request.notes:
+            row += 2
+            ws.cell(row=row, column=1, value=f"Notes: {request.notes}")
+        
+        # Save to bytes
+        output = io.BytesIO()
+        wb.save(output)
+        output.seek(0)
+        
+        # Generate filename
+        safe_supplier = request.supplier.replace(" ", "_").replace("ä", "a").replace("ü", "u").replace("ö", "o")
+        date_str = datetime.now().strftime("%Y%m%d")
+        filename = f"{safe_supplier}_PO_{date_str}.xlsx"
+        
+        return StreamingResponse(
+            output,
+            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            headers={
+                "Content-Disposition": f"attachment; filename={filename}",
+                "X-Filename": filename
+            }
+        )
+        
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/admin/reorder/vendors")
+async def admin_list_vendors(agent: TokenData = Depends(require_admin)):
+    """List all vendors/suppliers from Zoho (admin only)"""
+    try:
+        vendors = await zoho_api.get_all_vendors()
+        return {
+            "vendors": [
+                {
+                    "contact_id": v.get("contact_id"),
+                    "name": v.get("contact_name") or v.get("company_name"),
+                    "email": v.get("email"),
+                }
+                for v in vendors
+            ]
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/admin/reorder/open-pos")
+async def admin_list_open_pos(agent: TokenData = Depends(require_admin)):
+    """List all open purchase orders (admin only)"""
+    try:
+        pos = await zoho_api.get_all_open_purchase_orders()
+        return {
+            "purchase_orders": [
+                {
+                    "purchaseorder_id": po.get("purchaseorder_id"),
+                    "purchaseorder_number": po.get("purchaseorder_number"),
+                    "vendor_name": po.get("vendor_name"),
+                    "date": po.get("date"),
+                    "expected_delivery_date": po.get("expected_delivery_date"),
+                    "total": po.get("total"),
+                    "status": po.get("status"),
+                    "line_item_count": len(po.get("line_items", [])),
+                }
+                for po in pos
+            ]
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 # ============ Static Files (Production) ============
 
 # Serve frontend static files in production

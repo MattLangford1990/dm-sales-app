@@ -3246,6 +3246,615 @@ function SyncPrompts() {
   return null
 }
 
+// Stock Reorder Section Component
+function StockReorderSection() {
+  const [loading, setLoading] = useState(false)
+  const [report, setReport] = useState(null)
+  const [error, setError] = useState(null)
+  const [selectedItems, setSelectedItems] = useState({}) // {supplier: {sku: {item, qty}}}
+  const [expandedSuppliers, setExpandedSuppliers] = useState({})
+  const [creatingPO, setCreatingPO] = useState(null)
+  const [brandFilter, setBrandFilter] = useState('')
+  const { addToast } = useToast()
+
+  const runAnalysis = async () => {
+    setLoading(true)
+    setError(null)
+    setReport(null)
+    setSelectedItems({})
+    
+    try {
+      const params = brandFilter ? `?brands=${encodeURIComponent(brandFilter)}` : ''
+      const data = await apiRequest(`/admin/reorder/analysis${params}`)
+      setReport(data)
+      
+      // Auto-expand suppliers with items needing reorder
+      const expanded = {}
+      data.suppliers?.forEach(s => {
+        if (s.reorder_items?.length > 0) {
+          expanded[s.supplier] = true
+        }
+      })
+      setExpandedSuppliers(expanded)
+      
+      addToast(`Analysis complete: ${data.summary?.total_reorder_skus || 0} SKUs need reorder`, 'success')
+    } catch (err) {
+      setError(err.message)
+      addToast('Analysis failed: ' + err.message, 'error')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const toggleSupplier = (supplier) => {
+    setExpandedSuppliers(prev => ({
+      ...prev,
+      [supplier]: !prev[supplier]
+    }))
+  }
+
+  const toggleItem = (supplier, item, isTopup = false) => {
+    setSelectedItems(prev => {
+      const supplierItems = prev[supplier] || {}
+      const key = item.sku
+      
+      if (supplierItems[key]) {
+        // Remove item
+        const { [key]: removed, ...rest } = supplierItems
+        if (Object.keys(rest).length === 0) {
+          const { [supplier]: removed2, ...restSuppliers } = prev
+          return restSuppliers
+        }
+        return { ...prev, [supplier]: rest }
+      } else {
+        // Add item
+        return {
+          ...prev,
+          [supplier]: {
+            ...supplierItems,
+            [key]: {
+              ...item,
+              quantity: item.suggested_qty,
+              isTopup
+            }
+          }
+        }
+      }
+    })
+  }
+
+  const updateItemQty = (supplier, sku, qty) => {
+    setSelectedItems(prev => ({
+      ...prev,
+      [supplier]: {
+        ...prev[supplier],
+        [sku]: {
+          ...prev[supplier][sku],
+          quantity: Math.max(0, parseInt(qty) || 0)
+        }
+      }
+    }))
+  }
+
+  const selectAllReorderItems = (supplier, items) => {
+    setSelectedItems(prev => {
+      const supplierItems = {}
+      items.forEach(item => {
+        supplierItems[item.sku] = {
+          ...item,
+          quantity: item.suggested_qty,
+          isTopup: false
+        }
+      })
+      return { ...prev, [supplier]: { ...prev[supplier], ...supplierItems } }
+    })
+  }
+
+  const clearSupplierSelection = (supplier) => {
+    setSelectedItems(prev => {
+      const { [supplier]: removed, ...rest } = prev
+      return rest
+    })
+  }
+
+  const getSupplierTotal = (supplier) => {
+    const items = selectedItems[supplier] || {}
+    return Object.values(items).reduce((sum, item) => {
+      return sum + (item.quantity * item.cost_price)
+    }, 0)
+  }
+
+  const getSelectedCount = (supplier) => {
+    return Object.keys(selectedItems[supplier] || {}).length
+  }
+
+  const handleExportExcel = async (supplier) => {
+    const items = selectedItems[supplier]
+    if (!items || Object.keys(items).length === 0) {
+      addToast('No items selected', 'error')
+      return
+    }
+
+    setCreatingPO(supplier)
+    try {
+      const token = localStorage.getItem('token')
+      const response = await fetch(`${API_BASE}/admin/reorder/export-excel`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          supplier,
+          items: Object.values(items).map(item => ({
+            sku: item.sku,
+            item_id: item.item_id,
+            name: item.name,
+            quantity: item.quantity,
+            cost_price: item.cost_price
+          }))
+        })
+      })
+
+      if (!response.ok) throw new Error('Export failed')
+
+      // Download the file
+      const blob = await response.blob()
+      const filename = response.headers.get('X-Filename') || `${supplier}_PO.xlsx`
+      const url = window.URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = filename
+      document.body.appendChild(a)
+      a.click()
+      window.URL.revokeObjectURL(url)
+      a.remove()
+
+      addToast(`Excel exported: ${filename}`, 'success')
+    } catch (err) {
+      addToast('Export failed: ' + err.message, 'error')
+    } finally {
+      setCreatingPO(null)
+    }
+  }
+
+  const handleCreateZohoPO = async (supplier) => {
+    const items = selectedItems[supplier]
+    if (!items || Object.keys(items).length === 0) {
+      addToast('No items selected', 'error')
+      return
+    }
+
+    if (!confirm(`Create Zoho PO for ${supplier} with ${Object.keys(items).length} items?`)) return
+
+    setCreatingPO(supplier)
+    try {
+      const result = await apiRequest('/admin/reorder/create-po', {
+        method: 'POST',
+        body: JSON.stringify({
+          supplier,
+          items: Object.values(items).map(item => ({
+            sku: item.sku,
+            item_id: item.item_id,
+            name: item.name,
+            quantity: item.quantity,
+            cost_price: item.cost_price
+          }))
+        })
+      })
+
+      addToast(`PO ${result.purchaseorder_number} created!`, 'success')
+      clearSupplierSelection(supplier)
+    } catch (err) {
+      addToast('Failed to create PO: ' + err.message, 'error')
+    } finally {
+      setCreatingPO(null)
+    }
+  }
+
+  // Format currency
+  const formatEUR = (value) => {
+    return new Intl.NumberFormat('en-GB', {
+      style: 'currency',
+      currency: 'EUR'
+    }).format(value)
+  }
+
+  return (
+    <div className="bg-white rounded-xl border border-gray-200">
+      <div className="p-4 border-b border-gray-200">
+        <div className="flex items-center justify-between">
+          <div>
+            <h3 className="font-semibold text-lg flex items-center gap-2">
+              📦 Stock Reorder
+            </h3>
+            <p className="text-sm text-gray-500 mt-1">
+              Identify SKUs below 5 weeks cover, grouped by supplier
+            </p>
+          </div>
+          <button
+            onClick={runAnalysis}
+            disabled={loading}
+            className="bg-primary-600 text-white px-4 py-2 rounded-lg font-medium hover:bg-primary-700 disabled:opacity-50 transition flex items-center gap-2"
+          >
+            {loading ? (
+              <>
+                <span className="animate-spin">⏳</span>
+                Analysing...
+              </>
+            ) : (
+              <>
+                🔄 Run Analysis
+              </>
+            )}
+          </button>
+        </div>
+
+        {/* Brand Filter */}
+        <div className="mt-3">
+          <input
+            type="text"
+            placeholder="Filter by brands (comma-separated, e.g. Räder, Relaxound)"
+            value={brandFilter}
+            onChange={(e) => setBrandFilter(e.target.value)}
+            className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm"
+          />
+        </div>
+      </div>
+
+      {/* Error State */}
+      {error && (
+        <div className="p-4 bg-red-50 border-b border-red-100">
+          <div className="text-red-600 font-medium">Error</div>
+          <div className="text-red-500 text-sm">{error}</div>
+        </div>
+      )}
+
+      {/* Loading State */}
+      {loading && (
+        <div className="p-8 text-center">
+          <div className="animate-spin text-4xl mb-2">⏳</div>
+          <div className="text-gray-500">Running analysis...</div>
+          <div className="text-gray-400 text-sm mt-1">This may take a minute</div>
+        </div>
+      )}
+
+      {/* Report Summary */}
+      {report && !loading && (
+        <>
+          <div className="p-4 bg-gray-50 border-b border-gray-200">
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+              <div className="bg-white rounded-lg p-3 border border-gray-200">
+                <div className="text-2xl font-bold text-orange-600">
+                  {report.summary?.total_reorder_skus || 0}
+                </div>
+                <div className="text-xs text-gray-500">SKUs Need Reorder</div>
+              </div>
+              <div className="bg-white rounded-lg p-3 border border-gray-200">
+                <div className="text-2xl font-bold text-blue-600">
+                  {formatEUR(report.summary?.total_reorder_value_eur || 0)}
+                </div>
+                <div className="text-xs text-gray-500">Total Value</div>
+              </div>
+              <div className="bg-white rounded-lg p-3 border border-gray-200">
+                <div className="text-2xl font-bold text-gray-600">
+                  {report.summary?.supplier_count || 0}
+                </div>
+                <div className="text-xs text-gray-500">Suppliers</div>
+              </div>
+              <div className="bg-white rounded-lg p-3 border border-gray-200">
+                <div className="text-2xl font-bold text-red-600">
+                  {report.summary?.suppliers_below_minimum || 0}
+                </div>
+                <div className="text-xs text-gray-500">Below Minimum</div>
+              </div>
+            </div>
+            <div className="text-xs text-gray-400 mt-2">
+              Generated: {new Date(report.generated_at).toLocaleString()}
+            </div>
+          </div>
+
+          {/* Suppliers List */}
+          <div className="divide-y divide-gray-100">
+            {report.suppliers?.map(supplier => {
+              const isExpanded = expandedSuppliers[supplier.supplier]
+              const selectedCount = getSelectedCount(supplier.supplier)
+              const selectedTotal = getSupplierTotal(supplier.supplier)
+              const meetsMinimum = selectedTotal >= supplier.minimum_eur
+              
+              return (
+                <div key={supplier.supplier} className="border-b border-gray-100 last:border-b-0">
+                  {/* Supplier Header */}
+                  <div
+                    className="p-4 cursor-pointer hover:bg-gray-50 transition"
+                    onClick={() => toggleSupplier(supplier.supplier)}
+                  >
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-3">
+                        <span className="text-lg">{isExpanded ? '▼' : '▶'}</span>
+                        <div>
+                          <div className="font-semibold text-lg">{supplier.supplier}</div>
+                          <div className="text-sm text-gray-500">
+                            Min: {formatEUR(supplier.minimum_eur)} • 
+                            {supplier.summary?.reorder_count || 0} items need reorder •
+                            {supplier.summary?.topup_count || 0} top-up candidates
+                          </div>
+                        </div>
+                      </div>
+                      <div className="text-right">
+                        <div className={`text-lg font-bold ${supplier.meets_minimum ? 'text-green-600' : 'text-orange-600'}`}>
+                          {formatEUR(supplier.reorder_total_eur)}
+                        </div>
+                        {!supplier.meets_minimum && supplier.gap_to_minimum > 0 && (
+                          <div className="text-xs text-orange-500">
+                            Gap: {formatEUR(supplier.gap_to_minimum)}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Progress Bar */}
+                    <div className="mt-2">
+                      <div className="h-2 bg-gray-200 rounded-full overflow-hidden">
+                        <div
+                          className={`h-full rounded-full transition-all ${
+                            supplier.meets_minimum ? 'bg-green-500' : 'bg-orange-500'
+                          }`}
+                          style={{
+                            width: `${Math.min(100, (supplier.reorder_total_eur / supplier.minimum_eur) * 100)}%`
+                          }}
+                        />
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Expanded Content */}
+                  {isExpanded && (
+                    <div className="px-4 pb-4">
+                      {/* Selection Summary & Actions */}
+                      {selectedCount > 0 && (
+                        <div className="mb-4 p-3 bg-blue-50 rounded-lg border border-blue-200">
+                          <div className="flex items-center justify-between">
+                            <div>
+                              <span className="font-medium text-blue-800">
+                                {selectedCount} items selected
+                              </span>
+                              <span className="text-blue-600 ml-2">
+                                = {formatEUR(selectedTotal)}
+                              </span>
+                              {!meetsMinimum && (
+                                <span className="text-orange-600 ml-2 text-sm">
+                                  (Need {formatEUR(supplier.minimum_eur - selectedTotal)} more)
+                                </span>
+                              )}
+                            </div>
+                            <div className="flex gap-2">
+                              <button
+                                onClick={(e) => { e.stopPropagation(); clearSupplierSelection(supplier.supplier) }}
+                                className="px-3 py-1 text-sm text-gray-600 hover:bg-gray-200 rounded"
+                              >
+                                Clear
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Reorder Items */}
+                      {supplier.reorder_items?.length > 0 && (
+                        <div className="mb-4">
+                          <div className="flex items-center justify-between mb-2">
+                            <h4 className="font-medium text-red-700 flex items-center gap-2">
+                              🚨 Reorder Now ({supplier.reorder_items.length})
+                            </h4>
+                            <button
+                              onClick={(e) => { e.stopPropagation(); selectAllReorderItems(supplier.supplier, supplier.reorder_items) }}
+                              className="text-xs text-primary-600 hover:underline"
+                            >
+                              Select All
+                            </button>
+                          </div>
+                          <div className="space-y-1">
+                            {supplier.reorder_items.map(item => {
+                              const isSelected = selectedItems[supplier.supplier]?.[item.sku]
+                              return (
+                                <div
+                                  key={item.sku}
+                                  className={`p-2 rounded-lg border transition ${
+                                    isSelected
+                                      ? 'bg-blue-50 border-blue-300'
+                                      : 'bg-white border-gray-200 hover:border-gray-300'
+                                  }`}
+                                >
+                                  <div className="flex items-center gap-3">
+                                    <input
+                                      type="checkbox"
+                                      checked={!!isSelected}
+                                      onChange={() => toggleItem(supplier.supplier, item)}
+                                      onClick={(e) => e.stopPropagation()}
+                                      className="w-5 h-5 rounded border-gray-300 text-primary-600"
+                                    />
+                                    <div className="flex-1 min-w-0">
+                                      <div className="font-medium text-sm truncate">{item.name}</div>
+                                      <div className="text-xs text-gray-500">
+                                        SKU: {item.sku} • Stock: {item.current_stock}
+                                        {item.open_po_qty > 0 && ` (+${item.open_po_qty} on order)`}
+                                      </div>
+                                    </div>
+                                    <div className="text-right shrink-0">
+                                      <div className={`text-sm font-medium ${
+                                        item.weeks_of_cover < 3 ? 'text-red-600' : 'text-orange-600'
+                                      }`}>
+                                        {item.weeks_of_cover.toFixed(1)}w cover
+                                      </div>
+                                      <div className="text-xs text-gray-500">
+                                        {item.weekly_velocity}/wk
+                                      </div>
+                                    </div>
+                                    <div className="text-right shrink-0 w-20">
+                                      {isSelected ? (
+                                        <input
+                                          type="number"
+                                          value={isSelected.quantity}
+                                          onChange={(e) => updateItemQty(supplier.supplier, item.sku, e.target.value)}
+                                          onClick={(e) => e.stopPropagation()}
+                                          className="w-full px-2 py-1 text-sm border border-gray-300 rounded text-right"
+                                          min="0"
+                                        />
+                                      ) : (
+                                        <span className="text-sm text-gray-600">
+                                          Sug: {item.suggested_qty}
+                                        </span>
+                                      )}
+                                    </div>
+                                    <div className="text-right shrink-0 w-20">
+                                      <div className="text-sm font-medium">
+                                        {formatEUR(isSelected ? isSelected.quantity * item.cost_price : item.order_value)}
+                                      </div>
+                                      <div className="text-xs text-gray-400">
+                                        @{formatEUR(item.cost_price)}
+                                      </div>
+                                    </div>
+                                  </div>
+                                  {item.status !== 'normal' && (
+                                    <div className="mt-1 ml-8">
+                                      <span className={`text-xs px-2 py-0.5 rounded ${
+                                        item.status === 'anomaly' ? 'bg-yellow-100 text-yellow-700' :
+                                        item.status === 'new' ? 'bg-blue-100 text-blue-700' :
+                                        'bg-gray-100 text-gray-600'
+                                      }`}>
+                                        {item.status === 'anomaly' ? '⚠️ Anomaly - Review' :
+                                         item.status === 'new' ? '🆕 New Product' :
+                                         item.status}
+                                      </span>
+                                    </div>
+                                  )}
+                                </div>
+                              )
+                            })}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Top-up Candidates */}
+                      {supplier.topup_candidates?.length > 0 && !supplier.meets_minimum && (
+                        <div className="mb-4">
+                          <h4 className="font-medium text-blue-700 mb-2 flex items-center gap-2">
+                            📈 Top-up Candidates ({supplier.topup_candidates.length})
+                            <span className="text-xs font-normal text-gray-500">
+                              (Add to reach minimum)
+                            </span>
+                          </h4>
+                          <div className="space-y-1">
+                            {supplier.topup_candidates.slice(0, 10).map(item => {
+                              const isSelected = selectedItems[supplier.supplier]?.[item.sku]
+                              return (
+                                <div
+                                  key={item.sku}
+                                  className={`p-2 rounded-lg border transition ${
+                                    isSelected
+                                      ? 'bg-blue-50 border-blue-300'
+                                      : 'bg-gray-50 border-gray-200 hover:border-gray-300'
+                                  }`}
+                                >
+                                  <div className="flex items-center gap-3">
+                                    <input
+                                      type="checkbox"
+                                      checked={!!isSelected}
+                                      onChange={() => toggleItem(supplier.supplier, item, true)}
+                                      onClick={(e) => e.stopPropagation()}
+                                      className="w-5 h-5 rounded border-gray-300 text-primary-600"
+                                    />
+                                    <div className="flex-1 min-w-0">
+                                      <div className="font-medium text-sm truncate">{item.name}</div>
+                                      <div className="text-xs text-gray-500">SKU: {item.sku}</div>
+                                    </div>
+                                    <div className="text-sm text-gray-600 shrink-0">
+                                      {item.weeks_of_cover.toFixed(1)}w cover
+                                    </div>
+                                    <div className="text-right shrink-0 w-20">
+                                      {isSelected ? (
+                                        <input
+                                          type="number"
+                                          value={isSelected.quantity}
+                                          onChange={(e) => updateItemQty(supplier.supplier, item.sku, e.target.value)}
+                                          onClick={(e) => e.stopPropagation()}
+                                          className="w-full px-2 py-1 text-sm border border-gray-300 rounded text-right"
+                                          min="0"
+                                        />
+                                      ) : (
+                                        <span className="text-sm text-gray-500">
+                                          Sug: {item.suggested_qty}
+                                        </span>
+                                      )}
+                                    </div>
+                                    <div className="text-sm font-medium shrink-0 w-20 text-right">
+                                      {formatEUR(isSelected ? isSelected.quantity * item.cost_price : item.order_value)}
+                                    </div>
+                                  </div>
+                                </div>
+                              )
+                            })}
+                            {supplier.topup_candidates.length > 10 && (
+                              <div className="text-sm text-gray-500 text-center py-2">
+                                +{supplier.topup_candidates.length - 10} more candidates
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Action Buttons */}
+                      {selectedCount > 0 && (
+                        <div className="flex gap-2 mt-4 pt-4 border-t border-gray-200">
+                          <button
+                            onClick={(e) => { e.stopPropagation(); handleExportExcel(supplier.supplier) }}
+                            disabled={creatingPO === supplier.supplier}
+                            className="flex-1 py-2 bg-green-600 text-white rounded-lg font-medium hover:bg-green-700 disabled:opacity-50 transition flex items-center justify-center gap-2"
+                          >
+                            {creatingPO === supplier.supplier ? '⏳' : '📥'}
+                            Export Excel
+                          </button>
+                          <button
+                            onClick={(e) => { e.stopPropagation(); handleCreateZohoPO(supplier.supplier) }}
+                            disabled={creatingPO === supplier.supplier}
+                            className="flex-1 py-2 bg-primary-600 text-white rounded-lg font-medium hover:bg-primary-700 disabled:opacity-50 transition flex items-center justify-center gap-2"
+                          >
+                            {creatingPO === supplier.supplier ? '⏳' : '📦'}
+                            Create Zoho PO
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )
+            })}
+          </div>
+
+          {/* Empty State */}
+          {report.suppliers?.length === 0 && (
+            <div className="p-8 text-center text-gray-500">
+              <span className="text-4xl">✅</span>
+              <p className="mt-2">All stock levels healthy!</p>
+              <p className="text-sm">No SKUs below 5 weeks cover</p>
+            </div>
+          )}
+        </>
+      )}
+
+      {/* Initial State */}
+      {!report && !loading && !error && (
+        <div className="p-8 text-center text-gray-500">
+          <span className="text-4xl">📊</span>
+          <p className="mt-2">Click "Run Analysis" to check stock levels</p>
+          <p className="text-sm mt-1">Compares current stock against seasonal velocity</p>
+        </div>
+      )}
+    </div>
+  )
+}
+
 // Admin Panel (only for admins)
 function AdminTab() {
   const [agents, setAgents] = useState([])
@@ -3501,6 +4110,9 @@ function AdminTab() {
           </div>
         )}
       </div>
+      
+      {/* Stock Reorder Section */}
+      <StockReorderSection />
       
       {/* Agents List */}
       <div className="bg-white rounded-xl border border-gray-200">
