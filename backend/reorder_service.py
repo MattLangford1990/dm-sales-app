@@ -527,19 +527,89 @@ def group_by_supplier(analyses: List[SKUAnalysis]) -> Dict[str, SupplierOrder]:
     return supplier_groups
 
 
+
+
+async def analyze_sku_quick(
+    item: dict,
+    po_quantities: Dict[str, int]
+) -> Optional[SKUAnalysis]:
+    """
+    Quick analysis - just check stock levels without velocity calculation.
+    Uses a simple threshold of 20 units.
+    """
+    sku = item.get("sku", "")
+    if not sku:
+        return None
+    
+    # Skip inactive items
+    if item.get("status") == "inactive":
+        return None
+    
+    # Basic info - account for committed stock
+    stock_on_hand = item.get("stock_on_hand", 0) or 0
+    committed_stock = item.get("committed_stock", 0) or item.get("stock_committed", 0) or 0
+    current_stock = stock_on_hand
+    available_stock = stock_on_hand - committed_stock
+    open_po = po_quantities.get(sku, 0)
+    effective_stock = available_stock + open_po
+    
+    brand = item.get("brand") or item.get("manufacturer") or ""
+    supplier = map_brand_to_supplier(brand)
+    cost_price = item.get("purchase_rate", 0) or item.get("purchase_price", 0) or 0
+    
+    # Skip items with no brand/supplier
+    if not brand or supplier == "Unknown":
+        return None
+    
+    # Simple threshold: need reorder if effective stock < 20
+    # Estimate 4 units/week velocity, so 20 = 5 weeks cover
+    estimated_velocity = 4.0
+    weeks_of_cover = effective_stock / estimated_velocity if estimated_velocity > 0 else 999
+    needs_reorder = effective_stock < 20 and effective_stock >= 0
+    
+    # Calculate suggested quantity to reach 50 units (12 weeks at 4/week)
+    suggested_qty = max(0, 50 - effective_stock) if needs_reorder else 0
+    order_value = round(suggested_qty * cost_price, 2)
+    
+    return SKUAnalysis(
+        sku=sku,
+        item_id=item.get("item_id", ""),
+        name=item.get("name", ""),
+        brand=brand,
+        supplier=supplier,
+        current_stock=current_stock,
+        committed_stock=committed_stock,
+        available_stock=available_stock,
+        open_po_qty=open_po,
+        effective_stock=effective_stock,
+        weekly_velocity=estimated_velocity,
+        velocity_source="estimated",
+        weeks_of_cover=round(weeks_of_cover, 1),
+        needs_reorder=needs_reorder,
+        status=SKUStatus.NORMAL,
+        anomaly_weeks=[],
+        cost_price=cost_price,
+        suggested_qty=suggested_qty,
+        order_value=order_value,
+        first_sale_date=None
+    )
+
+
 async def run_reorder_analysis(
-    brand_filter: Optional[List[str]] = None
+    brand_filter: Optional[List[str]] = None,
+    quick_mode: bool = False
 ) -> Dict[str, SupplierOrder]:
     """
     Run full reorder analysis.
     
     Args:
         brand_filter: Optional list of brands to analyze (None = all brands)
+        quick_mode: If True, skip velocity calculation and use simple stock threshold
     
     Returns:
         Dict of supplier_name -> SupplierOrder
     """
-    print("REORDER: Starting analysis...")
+    print(f"REORDER: Starting analysis (quick_mode={quick_mode})...")
     
     # 1. Get all items from Zoho
     all_items = await zoho_api.get_all_items_cached()
@@ -561,32 +631,45 @@ async def run_reorder_analysis(
     # 3. Get open PO quantities
     po_quantities = await get_open_po_quantities()
     
-    # 4. Get velocity data - same window last year
-    last_year_start, last_year_end = get_velocity_window_dates()
-    print(f"REORDER: Getting velocity data for {last_year_start} to {last_year_end}")
-    velocity_data_last_year = await get_sales_velocity_data(last_year_start, last_year_end)
-    
-    # 5. Get 90-day velocity data (fallback for new products)
-    ninety_day_start, ninety_day_end = get_90_day_window_dates()
-    velocity_data_90_day = await get_sales_velocity_data(ninety_day_start, ninety_day_end)
-    
-    # 6. Get first sale dates (for new product detection)
-    # This would ideally come from a separate query, but for now we'll estimate
-    first_sale_dates = {}  # {sku: first_sale_date}
-    # TODO: Implement first sale date lookup if needed
-    
-    # 7. Analyze each SKU
-    analyses = []
-    for item in all_items:
-        analysis = await analyze_sku(
-            item,
-            po_quantities,
-            velocity_data_last_year,
-            velocity_data_90_day,
-            first_sale_dates
-        )
-        if analysis:
-            analyses.append(analysis)
+    if quick_mode:
+        # QUICK MODE: Skip velocity calculation, use simple stock threshold
+        print("REORDER: Quick mode - using stock threshold instead of velocity")
+        velocity_data_last_year = {}
+        velocity_data_90_day = {}
+        first_sale_dates = {}
+        
+        # In quick mode, analyze with simple threshold
+        analyses = []
+        for item in all_items:
+            analysis = await analyze_sku_quick(item, po_quantities)
+            if analysis:
+                analyses.append(analysis)
+    else:
+        # FULL MODE: Calculate velocity from sales history
+        # 4. Get velocity data - same window last year
+        last_year_start, last_year_end = get_velocity_window_dates()
+        print(f"REORDER: Getting velocity data for {last_year_start} to {last_year_end}")
+        velocity_data_last_year = await get_sales_velocity_data(last_year_start, last_year_end)
+        
+        # 5. Get 90-day velocity data (fallback for new products)
+        ninety_day_start, ninety_day_end = get_90_day_window_dates()
+        velocity_data_90_day = await get_sales_velocity_data(ninety_day_start, ninety_day_end)
+        
+        # 6. Get first sale dates (for new product detection)
+        first_sale_dates = {}  # {sku: first_sale_date}
+        
+        # 7. Analyze each SKU
+        analyses = []
+        for item in all_items:
+            analysis = await analyze_sku(
+                item,
+                po_quantities,
+                velocity_data_last_year,
+                velocity_data_90_day,
+                first_sale_dates
+            )
+            if analysis:
+                analyses.append(analysis)
     
     print(f"REORDER: Analyzed {len(analyses)} SKUs")
     

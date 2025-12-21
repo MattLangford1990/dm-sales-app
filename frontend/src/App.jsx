@@ -3255,6 +3255,7 @@ function StockReorderSection() {
   const [expandedSuppliers, setExpandedSuppliers] = useState({})
   const [creatingPO, setCreatingPO] = useState(null)
   const [brandFilter, setBrandFilter] = useState('')
+  const [quickMode, setQuickMode] = useState(true)  // Quick mode by default
   const { addToast } = useToast()
 
   const runAnalysis = async () => {
@@ -3265,7 +3266,7 @@ function StockReorderSection() {
     
     try {
       const params = brandFilter ? `?brands=${encodeURIComponent(brandFilter)}` : ''
-      const data = await apiRequest(`/admin/reorder/analysis${params}`)
+      const data = await apiRequest(`/admin/reorder/analysis${params}${params ? '&' : '?'}quick=${quickMode}`)
       setReport(data)
       
       // Auto-expand suppliers with items needing reorder
@@ -3472,22 +3473,33 @@ function StockReorderSection() {
               Identify SKUs below 5 weeks cover, grouped by supplier
             </p>
           </div>
-          <button
-            onClick={runAnalysis}
-            disabled={loading}
-            className="bg-primary-600 text-white px-4 py-2 rounded-lg font-medium hover:bg-primary-700 disabled:opacity-50 transition flex items-center gap-2"
-          >
-            {loading ? (
-              <>
-                <span className="animate-spin">⏳</span>
-                Analysing...
-              </>
-            ) : (
-              <>
-                🔄 Run Analysis
-              </>
-            )}
-          </button>
+          <div className="flex items-center gap-2">
+            <label className="flex items-center gap-1 text-sm text-gray-600 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={quickMode}
+                onChange={(e) => setQuickMode(e.target.checked)}
+                className="rounded border-gray-300"
+              />
+              Quick
+            </label>
+            <button
+              onClick={runAnalysis}
+              disabled={loading}
+              className="bg-primary-600 text-white px-4 py-2 rounded-lg font-medium hover:bg-primary-700 disabled:opacity-50 transition flex items-center gap-2"
+            >
+              {loading ? (
+                <>
+                  <span className="animate-spin">⏳</span>
+                  Analysing...
+                </>
+              ) : (
+                <>
+                  🔄 Run Analysis
+                </>
+              )}
+            </button>
+          </div>
         </div>
 
         {/* Brand Filter */}

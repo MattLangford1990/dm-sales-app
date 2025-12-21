@@ -2518,27 +2518,38 @@ class ReorderCreatePORequest(BaseModel):
 
 @app.get("/api/admin/reorder/test")
 async def admin_reorder_test(agent: TokenData = Depends(require_admin)):
-    """Quick test endpoint to verify reorder system is working"""
+    """Quick diagnostic - shows items with low stock without velocity calc"""
     print("REORDER TEST: Endpoint hit")
     try:
-        # Test basic Zoho connectivity
         items = await zoho_api.get_all_items_cached()
-        print(f"REORDER TEST: Got {len(items)} items from cache")
+        print(f"REORDER TEST: Got {len(items)} items")
         
-        # Test invoice fetching
-        from datetime import datetime, timedelta
-        end_date = datetime.now().strftime("%Y-%m-%d")
-        start_date = (datetime.now() - timedelta(days=30)).strftime("%Y-%m-%d")
-        print(f"REORDER TEST: Fetching invoices from {start_date} to {end_date}")
+        # Find items with stock < 20 (simple low stock check)
+        low_stock = []
+        for item in items:
+            stock = item.get("stock_on_hand", 0) or 0
+            committed = item.get("committed_stock", 0) or item.get("stock_committed", 0) or 0
+            available = stock - committed
+            brand = item.get("brand") or item.get("manufacturer") or ""
+            
+            if 0 < available < 20 and brand:
+                low_stock.append({
+                    "sku": item.get("sku"),
+                    "name": item.get("name"),
+                    "brand": brand,
+                    "stock_on_hand": stock,
+                    "committed": committed,
+                    "available": available
+                })
         
-        invoices = await zoho_api.get_invoices_by_date_range(start_date, end_date)
-        print(f"REORDER TEST: Got {len(invoices)} invoices")
+        # Sort by available stock
+        low_stock.sort(key=lambda x: x["available"])
         
         return {
-            "status": "ok",
-            "items_count": len(items),
-            "invoices_count": len(invoices),
-            "date_range": f"{start_date} to {end_date}"
+            "status": "ok", 
+            "total_items": len(items),
+            "low_stock_count": len(low_stock),
+            "low_stock_items": low_stock[:50]  # Show first 50
         }
     except Exception as e:
         import traceback
@@ -2569,8 +2580,8 @@ async def admin_reorder_analysis(
             print(f"REORDER ANALYSIS: Brand filter = {brand_filter}")
         
         # Run analysis
-        print("REORDER ANALYSIS: Starting run_reorder_analysis...")
-        supplier_orders = await reorder_service.run_reorder_analysis(brand_filter)
+        print(f"REORDER ANALYSIS: Starting run_reorder_analysis (quick={quick})...")
+        supplier_orders = await reorder_service.run_reorder_analysis(brand_filter, quick_mode=quick)
         print(f"REORDER ANALYSIS: Got {len(supplier_orders)} supplier orders")
         
         # Format for API response
