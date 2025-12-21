@@ -2516,6 +2516,54 @@ class ReorderCreatePORequest(BaseModel):
     notes: Optional[str] = None
 
 
+
+@app.get("/api/admin/reorder/velocity-test")
+async def admin_velocity_test():
+    """Test different methods of getting velocity data"""
+    from datetime import datetime, timedelta
+    results = {}
+    
+    # Test 1: Try the reports endpoint
+    try:
+        end_date = datetime.now().strftime("%Y-%m-%d")
+        start_date = (datetime.now() - timedelta(days=30)).strftime("%Y-%m-%d")
+        
+        report = await zoho_api.get_sales_by_item_report(start_date, end_date)
+        results["report_endpoint"] = {
+            "status": "success",
+            "keys": list(report.keys()) if isinstance(report, dict) else "not a dict",
+            "sample": str(report)[:500]
+        }
+    except Exception as e:
+        results["report_endpoint"] = {"status": "error", "message": str(e)}
+    
+    # Test 2: Get a single invoice to see structure
+    try:
+        end_date = datetime.now().strftime("%Y-%m-%d")
+        start_date = (datetime.now() - timedelta(days=7)).strftime("%Y-%m-%d")
+        
+        invoices = await zoho_api.get_invoices_by_date_range(start_date, end_date)
+        results["invoices_list"] = {
+            "count": len(invoices),
+            "has_line_items": "line_items" in invoices[0] if invoices else False,
+            "sample_keys": list(invoices[0].keys()) if invoices else []
+        }
+        
+        # Try getting one full invoice
+        if invoices:
+            full = await zoho_api.get_invoice(invoices[0]["invoice_id"])
+            inv = full.get("invoice", {})
+            results["full_invoice"] = {
+                "has_line_items": "line_items" in inv,
+                "line_items_count": len(inv.get("line_items", [])),
+                "sample_line_item": inv.get("line_items", [{}])[0] if inv.get("line_items") else None
+            }
+    except Exception as e:
+        results["invoices_test"] = {"status": "error", "message": str(e)}
+    
+    return results
+
+
 @app.get("/api/admin/reorder/test")
 async def admin_reorder_test(agent: TokenData = Depends(require_admin)):
     """Quick diagnostic - shows items with low stock without velocity calc"""
@@ -2560,6 +2608,7 @@ async def admin_reorder_test(agent: TokenData = Depends(require_admin)):
 @app.get("/api/admin/reorder/analysis")
 async def admin_reorder_analysis(
     brands: Optional[str] = None,
+    quick: bool = False,
     agent: TokenData = Depends(require_admin)
 ):
     """

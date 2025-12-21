@@ -271,73 +271,36 @@ async def get_open_po_quantities() -> Dict[str, int]:
     return po_quantities
 
 
-async def fetch_invoice_line_items(invoice_id: str) -> List[dict]:
-    """Fetch line items for a single invoice"""
-    try:
-        full_invoice = await zoho_api.get_invoice(invoice_id)
-        return full_invoice.get("invoice", {}).get("line_items", [])
-    except Exception as e:
-        print(f"REORDER: Error fetching invoice {invoice_id}: {e}")
-        return []
-
-
 async def get_sales_velocity_data(start_date: str, end_date: str) -> Dict[str, Dict]:
     """
-    Get sales data broken down by week for each SKU.
-    Uses parallel fetching for speed.
+    Get sales data for each SKU using Zoho's sales by item report.
+    Much faster than fetching individual invoices.
     
     Returns dict of {sku: {"total": qty_sold}}
     """
     velocity_data = {}
     
     try:
-        # Get invoices list
-        print(f"REORDER: Fetching invoices from {start_date} to {end_date}...")
-        invoices = await zoho_api.get_invoices_by_date_range(start_date, end_date)
-        print(f"REORDER: Got {len(invoices)} invoices, fetching line items in parallel...")
+        print(f"REORDER: Fetching sales report from {start_date} to {end_date}...")
+        report = await zoho_api.get_sales_by_item_report(start_date, end_date)
         
-        if not invoices:
-            print("REORDER WARNING: No invoices found in date range!")
+        sales = report.get("sales", [])
+        print(f"REORDER: Got {len(sales)} items from sales report")
+        
+        if not sales:
+            print("REORDER WARNING: No sales data in report!")
             return velocity_data
         
-        # Get invoice IDs
-        invoice_ids = [inv.get("invoice_id") for inv in invoices if inv.get("invoice_id")]
-        
-        # Fetch invoices sequentially with rate limiting to avoid 429 errors
-        # Zoho allows ~10 requests/second, so we fetch 5 at a time with small delay
-        batch_size = 5
-        all_line_items = []
-        total_batches = (len(invoice_ids) + batch_size - 1) // batch_size
-        
-        for i in range(0, len(invoice_ids), batch_size):
-            batch = invoice_ids[i:i+batch_size]
-            batch_num = i // batch_size + 1
-            
-            if batch_num % 10 == 1:  # Log every 10 batches
-                print(f"REORDER: Fetching batch {batch_num}/{total_batches}...")
-            
-            # Fetch batch in parallel (small batch to avoid rate limits)
-            batch_results = await asyncio.gather(*[
-                fetch_invoice_line_items(inv_id) for inv_id in batch
-            ])
-            
-            for line_items in batch_results:
-                all_line_items.extend(line_items)
-            
-            # Small delay between batches to respect rate limits
-            await asyncio.sleep(0.2)
-        
-        # Aggregate by SKU
-        for line_item in all_line_items:
-            sku = line_item.get("sku", "")
-            qty = line_item.get("quantity", 0)
+        # Extract SKU and quantity from report
+        for item in sales:
+            # SKU is nested in item.sku
+            sku = item.get("item", {}).get("sku", "")
+            qty = item.get("quantity_sold", 0)
             
             if sku and qty > 0:
-                if sku not in velocity_data:
-                    velocity_data[sku] = {"total": 0}
-                velocity_data[sku]["total"] += qty
+                velocity_data[sku] = {"total": qty}
         
-        print(f"REORDER: Got velocity data for {len(velocity_data)} SKUs from {len(invoices)} invoices")
+        print(f"REORDER: Got velocity data for {len(velocity_data)} SKUs")
         
         # Debug: show top 5 SKUs by velocity
         if velocity_data:
@@ -537,6 +500,106 @@ def group_by_supplier(analyses: List[SKUAnalysis]) -> Dict[str, SupplierOrder]:
 
 
 
+
+
+async def analyze_sku_v2(
+    item: dict,
+    po_quantities: Dict[str, int],
+    velocity_data_90_day: Dict[str, Dict],
+    velocity_data_last_year: Dict[str, Dict],
+) -> Optional[SKUAnalysis]:
+    """
+    Analyze a single SKU for reorder using 90-day sales as primary velocity.
+    """
+    sku = item.get("sku", "")
+    if not sku:
+        return None
+    
+    # Skip inactive items
+    if item.get("status") == "inactive":
+        return None
+    
+    # Basic info - account for committed stock
+    stock_on_hand = item.get("stock_on_hand", 0) or 0
+    committed_stock = item.get("committed_stock", 0) or item.get("stock_committed", 0) or 0
+    current_stock = stock_on_hand
+    available_stock = stock_on_hand - committed_stock
+    open_po = po_quantities.get(sku, 0)
+    effective_stock = available_stock + open_po
+    
+    brand = item.get("brand") or item.get("manufacturer") or ""
+    supplier = map_brand_to_supplier(brand)
+    cost_price = item.get("purchase_rate", 0) or item.get("purchase_price", 0) or 0
+    
+    # Skip items with no brand/supplier
+    if not brand or supplier == "Unknown":
+        return None
+    
+    # Calculate velocity - use MAX of 90-day and last year (most conservative)
+    velocity_90_day = 0
+    velocity_last_year = 0
+    status = SKUStatus.NORMAL
+    
+    if sku in velocity_data_90_day:
+        total_sold = velocity_data_90_day[sku].get("total", 0)
+        velocity_90_day = total_sold / 13  # 90 days ≈ 13 weeks
+    
+    if sku in velocity_data_last_year:
+        total_sold = velocity_data_last_year[sku].get("total", 0)
+        velocity_last_year = total_sold / 6  # 6-week window
+    
+    # Use the higher of the two (most conservative - won't underorder)
+    if velocity_90_day >= velocity_last_year:
+        weekly_velocity = velocity_90_day
+        velocity_source = "90_day"
+    else:
+        weekly_velocity = velocity_last_year
+        velocity_source = "last_year"
+    
+    # If no velocity at all, mark as no_sales
+    if weekly_velocity == 0:
+        status = SKUStatus.NO_SALES
+    
+    # Calculate weeks of cover
+    if weekly_velocity > 0:
+        weeks_of_cover = effective_stock / weekly_velocity
+    else:
+        weeks_of_cover = 999  # Infinite if no sales
+    
+    # Determine if reorder needed (< 5 weeks cover)
+    needs_reorder = weeks_of_cover < MIN_COVER_WEEKS and weekly_velocity > 0
+    
+    # Calculate suggested quantity to reach 12 weeks cover
+    suggested_qty = 0
+    if needs_reorder:
+        suggested_qty = calculate_suggested_qty(weekly_velocity, effective_stock, target_weeks=12)
+    
+    order_value = round(suggested_qty * cost_price, 2)
+    
+    return SKUAnalysis(
+        sku=sku,
+        item_id=item.get("item_id", ""),
+        name=item.get("name", ""),
+        brand=brand,
+        supplier=supplier,
+        current_stock=current_stock,
+        committed_stock=committed_stock,
+        available_stock=available_stock,
+        open_po_qty=open_po,
+        effective_stock=effective_stock,
+        weekly_velocity=round(weekly_velocity, 2),
+        velocity_source=velocity_source,
+        weeks_of_cover=round(weeks_of_cover, 1),
+        needs_reorder=needs_reorder,
+        status=status,
+        anomaly_weeks=[],
+        cost_price=cost_price,
+        suggested_qty=suggested_qty,
+        order_value=order_value,
+        first_sale_date=None
+    )
+
+
 async def analyze_sku_quick(
     item: dict,
     po_quantities: Dict[str, int]
@@ -654,27 +717,26 @@ async def run_reorder_analysis(
                 analyses.append(analysis)
     else:
         # FULL MODE: Calculate velocity from sales history
-        # 4. Get velocity data - same window last year
-        last_year_start, last_year_end = get_velocity_window_dates()
-        print(f"REORDER: Getting velocity data for {last_year_start} to {last_year_end}")
-        velocity_data_last_year = await get_sales_velocity_data(last_year_start, last_year_end)
-        
-        # 5. Get 90-day velocity data (fallback for new products)
+        # Primary: Use 90-day sales data (more reliable than seasonal data)
         ninety_day_start, ninety_day_end = get_90_day_window_dates()
+        print(f"REORDER: Getting 90-day velocity data ({ninety_day_start} to {ninety_day_end})...")
         velocity_data_90_day = await get_sales_velocity_data(ninety_day_start, ninety_day_end)
         
-        # 6. Get first sale dates (for new product detection)
-        first_sale_dates = {}  # {sku: first_sale_date}
+        # Secondary: Same window last year (for seasonal comparison)
+        last_year_start, last_year_end = get_velocity_window_dates()
+        print(f"REORDER: Getting last year velocity data ({last_year_start} to {last_year_end})...")
+        velocity_data_last_year = await get_sales_velocity_data(last_year_start, last_year_end)
         
-        # 7. Analyze each SKU
+        first_sale_dates = {}
+        
+        # Analyze each SKU - use 90-day as primary, last year as fallback
         analyses = []
         for item in all_items:
-            analysis = await analyze_sku(
+            analysis = await analyze_sku_v2(
                 item,
                 po_quantities,
-                velocity_data_last_year,
-                velocity_data_90_day,
-                first_sale_dates
+                velocity_data_90_day,  # Primary
+                velocity_data_last_year,  # Secondary/seasonal
             )
             if analysis:
                 analyses.append(analysis)

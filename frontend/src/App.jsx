@@ -3255,7 +3255,7 @@ function StockReorderSection() {
   const [expandedSuppliers, setExpandedSuppliers] = useState({})
   const [creatingPO, setCreatingPO] = useState(null)
   const [brandFilter, setBrandFilter] = useState('')
-  const [quickMode, setQuickMode] = useState(true)  // Quick mode by default
+  
   const { addToast } = useToast()
 
   const runAnalysis = async () => {
@@ -3266,7 +3266,7 @@ function StockReorderSection() {
     
     try {
       const params = brandFilter ? `?brands=${encodeURIComponent(brandFilter)}` : ''
-      const data = await apiRequest(`/admin/reorder/analysis${params}${params ? '&' : '?'}quick=${quickMode}`)
+      const data = await apiRequest(`/admin/reorder/analysis${params}`)
       setReport(data)
       
       // Auto-expand suppliers with items needing reorder
@@ -3473,44 +3473,41 @@ function StockReorderSection() {
               Identify SKUs below 5 weeks cover, grouped by supplier
             </p>
           </div>
-          <div className="flex items-center gap-2">
-            <label className="flex items-center gap-1 text-sm text-gray-600 cursor-pointer">
-              <input
-                type="checkbox"
-                checked={quickMode}
-                onChange={(e) => setQuickMode(e.target.checked)}
-                className="rounded border-gray-300"
-              />
-              Quick
-            </label>
-            <button
-              onClick={runAnalysis}
-              disabled={loading}
-              className="bg-primary-600 text-white px-4 py-2 rounded-lg font-medium hover:bg-primary-700 disabled:opacity-50 transition flex items-center gap-2"
-            >
-              {loading ? (
-                <>
-                  <span className="animate-spin">⏳</span>
-                  Analysing...
-                </>
-              ) : (
-                <>
-                  🔄 Run Analysis
-                </>
-              )}
-            </button>
-          </div>
+          <button
+            onClick={runAnalysis}
+            disabled={loading}
+            className="bg-primary-600 text-white px-4 py-2 rounded-lg font-medium hover:bg-primary-700 disabled:opacity-50 transition flex items-center gap-2"
+          >
+            {loading ? (
+              <>
+                <span className="animate-spin">⏳</span>
+                Analysing...
+              </>
+            ) : (
+              <>
+                🔄 Run Analysis
+              </>
+            )}
+          </button>
         </div>
 
         {/* Brand Filter */}
         <div className="mt-3">
-          <input
-            type="text"
-            placeholder="Filter by brands (comma-separated, e.g. Räder, Relaxound)"
+          <select
             value={brandFilter}
             onChange={(e) => setBrandFilter(e.target.value)}
-            className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm"
-          />
+            className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm bg-white"
+          >
+            <option value="">All Brands</option>
+            <option value="Räder">Räder</option>
+            <option value="Relaxound">Relaxound</option>
+            <option value="Ideas4Seasons">Ideas4Seasons</option>
+            <option value="My Flame">My Flame</option>
+            <option value="PPD">PPD</option>
+            <option value="Elvang">Elvang</option>
+            <option value="GEFU">GEFU</option>
+            <option value="Remember">Remember</option>
+          </select>
         </div>
       </div>
 
