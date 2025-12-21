@@ -14,6 +14,7 @@ from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Tuple
 from dataclasses import dataclass, field
 from enum import Enum
+import asyncio
 import zoho_api
 
 
@@ -270,55 +271,65 @@ async def get_open_po_quantities() -> Dict[str, int]:
     return po_quantities
 
 
+async def fetch_invoice_line_items(invoice_id: str) -> List[dict]:
+    """Fetch line items for a single invoice"""
+    try:
+        full_invoice = await zoho_api.get_invoice(invoice_id)
+        return full_invoice.get("invoice", {}).get("line_items", [])
+    except Exception as e:
+        print(f"REORDER: Error fetching invoice {invoice_id}: {e}")
+        return []
+
+
 async def get_sales_velocity_data(start_date: str, end_date: str) -> Dict[str, Dict]:
     """
     Get sales data broken down by week for each SKU.
+    Uses parallel fetching for speed.
     
     Returns dict of {sku: {"total": qty_sold}}
     """
     velocity_data = {}
     
     try:
-        # Get invoices and aggregate by SKU
+        # Get invoices list
         print(f"REORDER: Fetching invoices from {start_date} to {end_date}...")
         invoices = await zoho_api.get_invoices_by_date_range(start_date, end_date)
-        print(f"REORDER: Got {len(invoices)} invoices")
+        print(f"REORDER: Got {len(invoices)} invoices, fetching line items in parallel...")
         
         if not invoices:
             print("REORDER WARNING: No invoices found in date range!")
             return velocity_data
         
-        # Process each invoice - need to fetch full invoice for line items
-        processed = 0
-        for invoice in invoices:
-            try:
-                invoice_id = invoice.get("invoice_id")
-                if not invoice_id:
-                    continue
-                    
-                # Fetch full invoice with line items
-                full_invoice = await zoho_api.get_invoice(invoice_id)
-                inv_data = full_invoice.get("invoice", {})
-                line_items = inv_data.get("line_items", [])
-                
-                for line_item in line_items:
-                    sku = line_item.get("sku", "")
-                    qty = line_item.get("quantity", 0)
-                    
-                    if sku and qty > 0:
-                        if sku not in velocity_data:
-                            velocity_data[sku] = {"total": 0}
-                        velocity_data[sku]["total"] += qty
-                
-                processed += 1
-                if processed % 50 == 0:
-                    print(f"REORDER: Processed {processed}/{len(invoices)} invoices...")
-                        
-            except Exception as e:
-                print(f"REORDER: Error processing invoice {invoice.get('invoice_id', 'unknown')}: {e}")
-                continue
+        # Get invoice IDs
+        invoice_ids = [inv.get("invoice_id") for inv in invoices if inv.get("invoice_id")]
         
-        print(f"REORDER: Got velocity data for {len(velocity_data)} SKUs from {processed} invoices")
+        # Fetch all invoices in parallel (batches of 20 to avoid overwhelming API)
+        batch_size = 20
+        all_line_items = []
+        
+        for i in range(0, len(invoice_ids), batch_size):
+            batch = invoice_ids[i:i+batch_size]
+            print(f"REORDER: Fetching batch {i//batch_size + 1}/{(len(invoice_ids) + batch_size - 1)//batch_size}...")
+            
+            # Fetch batch in parallel
+            batch_results = await asyncio.gather(*[
+                fetch_invoice_line_items(inv_id) for inv_id in batch
+            ])
+            
+            for line_items in batch_results:
+                all_line_items.extend(line_items)
+        
+        # Aggregate by SKU
+        for line_item in all_line_items:
+            sku = line_item.get("sku", "")
+            qty = line_item.get("quantity", 0)
+            
+            if sku and qty > 0:
+                if sku not in velocity_data:
+                    velocity_data[sku] = {"total": 0}
+                velocity_data[sku]["total"] += qty
+        
+        print(f"REORDER: Got velocity data for {len(velocity_data)} SKUs from {len(invoices)} invoices")
         
         # Debug: show top 5 SKUs by velocity
         if velocity_data:
