@@ -272,62 +272,65 @@ async def get_sales_velocity_data(start_date: str, end_date: str) -> Dict[str, D
     """
     Get sales data broken down by week for each SKU.
     
-    Returns dict of {sku: {week: qty_sold}}
+    Returns dict of {sku: {"total": qty_sold}}
     """
     velocity_data = {}
     
     try:
-        # Try the sales by item report first (most efficient)
-        try:
-            report = await zoho_api.get_sales_by_item_report(start_date, end_date)
-            items = report.get("sales", [])
-            
-            for item in items:
-                sku = item.get("sku", "")
-                if sku:
-                    # Report gives total quantity sold
-                    qty = item.get("quantity_sold", 0)
-                    velocity_data[sku] = {"total": qty}
-            
-            print(f"REORDER: Got velocity data for {len(velocity_data)} SKUs from report")
-            return velocity_data
-        except Exception as e:
-            print(f"REORDER: Report endpoint failed, falling back to invoices: {e}")
-        
-        # Fallback: Get invoices and aggregate
+        # Get invoices and aggregate by SKU
+        print(f"REORDER: Fetching invoices from {start_date} to {end_date}...")
         invoices = await zoho_api.get_invoices_by_date_range(start_date, end_date)
+        print(f"REORDER: Got {len(invoices)} invoices")
         
+        if not invoices:
+            print("REORDER WARNING: No invoices found in date range!")
+            return velocity_data
+        
+        # Process each invoice - need to fetch full invoice for line items
+        processed = 0
         for invoice in invoices:
             try:
-                # Get full invoice with line items
-                full_invoice = await zoho_api.get_invoice(invoice["invoice_id"])
+                invoice_id = invoice.get("invoice_id")
+                if not invoice_id:
+                    continue
+                    
+                # Fetch full invoice with line items
+                full_invoice = await zoho_api.get_invoice(invoice_id)
                 inv_data = full_invoice.get("invoice", {})
-                invoice_date = inv_data.get("date", "")
+                line_items = inv_data.get("line_items", [])
                 
-                # Calculate week number
-                if invoice_date:
-                    week = datetime.strptime(invoice_date, "%Y-%m-%d").strftime("%Y-W%W")
-                else:
-                    week = "unknown"
-                
-                for line_item in inv_data.get("line_items", []):
+                for line_item in line_items:
                     sku = line_item.get("sku", "")
                     qty = line_item.get("quantity", 0)
                     
                     if sku and qty > 0:
                         if sku not in velocity_data:
-                            velocity_data[sku] = {}
-                        velocity_data[sku][week] = velocity_data[sku].get(week, 0) + qty
+                            velocity_data[sku] = {"total": 0}
+                        velocity_data[sku]["total"] += qty
+                
+                processed += 1
+                if processed % 50 == 0:
+                    print(f"REORDER: Processed {processed}/{len(invoices)} invoices...")
+                        
             except Exception as e:
-                print(f"REORDER: Error processing invoice: {e}")
+                print(f"REORDER: Error processing invoice {invoice.get('invoice_id', 'unknown')}: {e}")
                 continue
         
-        print(f"REORDER: Got velocity data for {len(velocity_data)} SKUs from invoices")
+        print(f"REORDER: Got velocity data for {len(velocity_data)} SKUs from {processed} invoices")
+        
+        # Debug: show top 5 SKUs by velocity
+        if velocity_data:
+            top_skus = sorted(velocity_data.items(), key=lambda x: x[1].get("total", 0), reverse=True)[:5]
+            print(f"REORDER: Top 5 SKUs by velocity: {[(s, d['total']) for s, d in top_skus]}")
         
     except Exception as e:
         print(f"REORDER ERROR: Failed to get velocity data: {e}")
+        import traceback
+        traceback.print_exc()
     
     return velocity_data
+
+
 
 
 async def analyze_sku(
