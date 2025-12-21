@@ -3677,8 +3677,8 @@ function StockReorderSection() {
                                     <div className="flex-1 min-w-0">
                                       <div className="font-medium text-sm truncate">{item.name}</div>
                                       <div className="text-xs text-gray-500">
-                                        SKU: {item.sku} • Stock: {item.current_stock}
-                                        {item.open_po_qty > 0 && ` (+${item.open_po_qty} on order)`}
+                                        SKU: {item.sku} • Stock: {item.current_stock}{item.committed_stock > 0 && ` (${item.committed_stock} committed)`}
+                                        {item.open_po_qty > 0 && ` • +${item.open_po_qty} on PO`}
                                       </div>
                                     </div>
                                     <div className="text-right shrink-0">

@@ -35,6 +35,8 @@ class SKUAnalysis:
     
     # Stock levels
     current_stock: int
+    committed_stock: int
+    available_stock: int
     open_po_qty: int
     effective_stock: int
     
@@ -353,10 +355,13 @@ async def analyze_sku(
     if item.get("status") == "inactive":
         return None
     
-    # Basic info
-    current_stock = item.get("stock_on_hand", 0) or 0
+    # Basic info - account for committed stock (allocated to open sales orders)
+    stock_on_hand = item.get("stock_on_hand", 0) or 0
+    committed_stock = item.get("committed_stock", 0) or item.get("stock_committed", 0) or 0
+    current_stock = stock_on_hand  # For display
+    available_stock = stock_on_hand - committed_stock
     open_po = po_quantities.get(sku, 0)
-    effective_stock = current_stock + open_po
+    effective_stock = available_stock + open_po
     
     brand = item.get("brand") or item.get("manufacturer") or ""
     supplier = map_brand_to_supplier(brand)
@@ -441,6 +446,8 @@ async def analyze_sku(
         brand=brand,
         supplier=supplier,
         current_stock=current_stock,
+        committed_stock=committed_stock,
+        available_stock=available_stock,
         open_po_qty=open_po,
         effective_stock=effective_stock,
         weekly_velocity=round(weekly_velocity, 2),
@@ -612,6 +619,8 @@ def format_analysis_report(supplier_orders: Dict[str, SupplierOrder]) -> dict:
                     "item_id": item.item_id,
                     "name": item.name,
                     "current_stock": item.current_stock,
+                    "committed_stock": item.committed_stock,
+                    "available_stock": item.available_stock,
                     "open_po_qty": item.open_po_qty,
                     "effective_stock": item.effective_stock,
                     "weekly_velocity": item.weekly_velocity,
