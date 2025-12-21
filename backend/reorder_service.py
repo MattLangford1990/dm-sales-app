@@ -303,21 +303,29 @@ async def get_sales_velocity_data(start_date: str, end_date: str) -> Dict[str, D
         # Get invoice IDs
         invoice_ids = [inv.get("invoice_id") for inv in invoices if inv.get("invoice_id")]
         
-        # Fetch all invoices in parallel (batches of 20 to avoid overwhelming API)
-        batch_size = 20
+        # Fetch invoices sequentially with rate limiting to avoid 429 errors
+        # Zoho allows ~10 requests/second, so we fetch 5 at a time with small delay
+        batch_size = 5
         all_line_items = []
+        total_batches = (len(invoice_ids) + batch_size - 1) // batch_size
         
         for i in range(0, len(invoice_ids), batch_size):
             batch = invoice_ids[i:i+batch_size]
-            print(f"REORDER: Fetching batch {i//batch_size + 1}/{(len(invoice_ids) + batch_size - 1)//batch_size}...")
+            batch_num = i // batch_size + 1
             
-            # Fetch batch in parallel
+            if batch_num % 10 == 1:  # Log every 10 batches
+                print(f"REORDER: Fetching batch {batch_num}/{total_batches}...")
+            
+            # Fetch batch in parallel (small batch to avoid rate limits)
             batch_results = await asyncio.gather(*[
                 fetch_invoice_line_items(inv_id) for inv_id in batch
             ])
             
             for line_items in batch_results:
                 all_line_items.extend(line_items)
+            
+            # Small delay between batches to respect rate limits
+            await asyncio.sleep(0.2)
         
         # Aggregate by SKU
         for line_item in all_line_items:
