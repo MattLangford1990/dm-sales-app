@@ -2385,7 +2385,7 @@ function CartTab({ onOrderSubmitted }) {
   const amountToFreeDelivery = FREIGHT_FREE_THRESHOLD - cartTotal
   const orderTotal = needsDeliveryCharge ? cartTotal + DELIVERY_CHARGE : cartTotal
   
-  // Email PDF Quote - generates PDF and uses Web Share API
+  // Generate PDF Quote - downloads directly for reliable iOS/Safari support
   const handleEmailQuote = async (docType = 'quote') => {
     setShowPdfTypeModal(false)
     
@@ -2430,42 +2430,33 @@ function CartTab({ onOrderSubmitted }) {
       }
       
       const blob = await response.blob()
-      const filename = response.headers.get('X-Filename') || 'quote.pdf'
+      const filename = response.headers.get('X-Filename') || `${docType}_${new Date().toISOString().split('T')[0]}.pdf`
       
-      // Try Web Share API first (works great on mobile)
-      if (navigator.share && navigator.canShare) {
-        const file = new File([blob], filename, { type: 'application/pdf' })
-        
-        if (navigator.canShare({ files: [file] })) {
-          try {
-            await navigator.share({
-              files: [file],
-              title: 'Quote from DM Brands',
-              text: `Please find attached quote for ${customer?.company_name || 'your order'}.`
-            })
-            addToast('Quote ready to share!', 'success')
-            return
-          } catch (shareErr) {
-            if (shareErr.name !== 'AbortError') {
-              console.log('Share failed, falling back to download:', shareErr)
-            } else {
-              // User cancelled share - that's fine
-              return
-            }
-          }
-        }
+      // Always download the PDF directly - most reliable across all browsers
+      // On iOS Safari, this will open the PDF in a new tab where user can tap share icon
+      const url = window.URL.createObjectURL(blob)
+      
+      // Check if iOS Safari (download attribute doesn't work well)
+      const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent)
+      
+      if (isIOS) {
+        // On iOS, open PDF in new tab - user can then use Safari's share button
+        // which has Mail, Save to Files, AirDrop etc.
+        window.open(url, '_blank')
+        addToast('PDF opened - tap Share icon to email or save', 'success')
+      } else {
+        // On other browsers, trigger download
+        const a = document.createElement('a')
+        a.href = url
+        a.download = filename
+        document.body.appendChild(a)
+        a.click()
+        a.remove()
+        addToast('PDF downloaded!', 'success')
       }
       
-      // Fallback: Download the PDF
-      const url = window.URL.createObjectURL(blob)
-      const a = document.createElement('a')
-      a.href = url
-      a.download = filename
-      document.body.appendChild(a)
-      a.click()
-      window.URL.revokeObjectURL(url)
-      a.remove()
-      addToast('PDF downloaded!', 'success')
+      // Clean up after a delay (give iOS time to load)
+      setTimeout(() => window.URL.revokeObjectURL(url), 10000)
       
     } catch (err) {
       console.error('PDF generation error:', err)
@@ -2652,23 +2643,27 @@ function CartTab({ onOrderSubmitted }) {
           <div className="bg-white rounded-2xl w-full max-w-sm">
             <div className="p-4 border-b border-gray-200">
               <h2 className="text-lg font-bold text-center">Generate PDF</h2>
+              <p className="text-sm text-gray-500 text-center mt-1">Opens in new tab - use Share button to email/save</p>
             </div>
             <div className="p-4 space-y-3">
               <button
                 onClick={() => handleEmailQuote('quote')}
-                className="w-full py-4 bg-blue-600 text-white rounded-xl font-semibold text-lg hover:bg-blue-700 transition flex items-center justify-center gap-2"
+                disabled={generatingPdf}
+                className="w-full py-4 bg-blue-600 text-white rounded-xl font-semibold text-lg hover:bg-blue-700 transition flex items-center justify-center gap-2 disabled:opacity-50"
               >
-                📋 Quote
+                {generatingPdf ? '⏳ Generating...' : '📋 Quote'}
               </button>
               <button
                 onClick={() => handleEmailQuote('order')}
-                className="w-full py-4 bg-green-600 text-white rounded-xl font-semibold text-lg hover:bg-green-700 transition flex items-center justify-center gap-2"
+                disabled={generatingPdf}
+                className="w-full py-4 bg-green-600 text-white rounded-xl font-semibold text-lg hover:bg-green-700 transition flex items-center justify-center gap-2 disabled:opacity-50"
               >
-                📦 Order Confirmation
+                {generatingPdf ? '⏳ Generating...' : '📦 Order Confirmation'}
               </button>
               <button
                 onClick={() => setShowPdfTypeModal(false)}
-                className="w-full py-3 bg-gray-100 text-gray-700 rounded-xl font-medium hover:bg-gray-200 transition"
+                disabled={generatingPdf}
+                className="w-full py-3 bg-gray-100 text-gray-700 rounded-xl font-medium hover:bg-gray-200 transition disabled:opacity-50"
               >
                 Cancel
               </button>
