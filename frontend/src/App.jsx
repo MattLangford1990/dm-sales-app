@@ -89,25 +89,25 @@ function useDebounce(value, delay = 300) {
 const isNativeApp = window.Capacitor?.isNativePlatform?.() || false
 const API_BASE = isNativeApp ? 'https://appdmbrands.com/api' : '/api'
 
-// Cloudinary image helper - LOW RES for sales app (fast mobile loading)
-const CLOUDINARY_BASE = 'https://res.cloudinary.com/dcfbgveei/image/upload'
+// Self-hosted CDN image helper
+const CDN_BASE = 'https://cdn.appdmbrands.com'
 
-// Convert SKU to Cloudinary format (dots -> underscores for My Flame products)
-const skuToCloudinaryId = (sku) => {
+// Convert SKU to CDN format (dots -> underscores for My Flame products)
+// This matches how images are stored on the CDN from the Cloudinary backup
+const skuToCdnId = (sku) => {
   if (!sku) return null
-  // Replace dots with underscores (My Flame uses dots, Cloudinary uses underscores)
   return sku.replace(/\./g, '_')
 }
 
-const getCloudinaryUrl = (sku, size = 'small') => {
+// Keep old name as alias for backward compatibility
+const skuToCloudinaryId = skuToCdnId
+
+// Get image URL from self-hosted CDN
+// Size parameter kept for API compatibility but not used (CDN serves full images)
+const getImageUrl = (sku, size = 'medium') => {
   if (!sku) return null
-  const cloudinarySku = skuToCloudinaryId(sku)
-  const transforms = {
-    small: 'w_300,q_60,f_auto',    // Product cards in app
-    medium: 'w_400,q_70,f_auto',   // Product detail modal
-    thumb: 'w_80,q_60,f_auto',     // Cart thumbnails
-  }
-  return `${CLOUDINARY_BASE}/${transforms[size] || transforms.small}/products/${cloudinarySku}.jpg`
+  const cdnSku = skuToCdnId(sku)
+  return `${CDN_BASE}/products/${cdnSku}.jpg`
 }
 
 async function apiRequest(endpoint, options = {}) {
@@ -802,7 +802,7 @@ function LoadingSpinner() {
 // Smart image component - uses Cloudinary CDN directly
 function OfflineImage({ sku, alt, className, fallbackIcon = '📦', size = 'small', imageUrl = null }) {
   // Use imageUrl if provided (e.g. Elvang), otherwise use Cloudinary path
-  const imageSrc = imageUrl || (sku ? getCloudinaryUrl(sku, size) : null)
+  const imageSrc = imageUrl || (sku ? getImageUrl(sku, size) : null)
   const [failed, setFailed] = useState(false)
   
   // Reset failed state when image source changes
@@ -832,10 +832,10 @@ function OfflineImage({ sku, alt, className, fallbackIcon = '📦', size = 'smal
 // Helper to get all possible image URLs for a product (main + variants)
 const getProductImageUrls = (sku, size = 'medium') => {
   if (!sku) return []
-  const urls = [getCloudinaryUrl(sku, size)] // Main image first
+  const urls = [getImageUrl(sku, size)] // Main image first
   // Add potential variant images (SKU_1, SKU_2, etc.)
   for (let i = 1; i <= 5; i++) {
-    urls.push(getCloudinaryUrl(`${sku}_${i}`, size))
+    urls.push(getImageUrl(`${sku}_${i}`, size))
   }
   return urls
 }
@@ -855,7 +855,7 @@ function ProductDetailModal({ product, onClose, onAddToCart, germanStockInfo }) 
   
   // Main image URL - show immediately
   // Use product.image_url if available (e.g. Elvang), otherwise fall back to standard Cloudinary path
-  const mainImageUrl = product?.image_url || (product?.sku ? getCloudinaryUrl(product.sku, 'medium') : null)
+  const mainImageUrl = product?.image_url || (product?.sku ? getImageUrl(product.sku, 'medium') : null)
   
   // All valid images (main + extras)
   const allImages = mainImageUrl && !mainImageFailed ? [mainImageUrl, ...extraImages] : extraImages
@@ -878,7 +878,7 @@ function ProductDetailModal({ product, onClose, onAddToCart, germanStockInfo }) 
     // Use cloudinarySku (with underscores) for the URL
     const validExtras = suffixes
       .filter(suffix => suffix.match(/^_\d+$/)) // Only _1, _2, etc.
-      .map(suffix => getCloudinaryUrl(`${cloudinarySku}${suffix}`, 'medium'))
+      .map(suffix => getImageUrl(`${cloudinarySku}${suffix}`, 'medium'))
     
     console.log('Extra images found:', validExtras.length)
     setExtraImages(validExtras)
@@ -1515,7 +1515,7 @@ function ProductsTab() {
     productsToPreload.forEach(product => {
       if (product.sku && !prefetchedImages.has(product.sku)) {
         const img = new Image()
-        img.src = getCloudinaryUrl(product.sku, 'small')
+        img.src = getImageUrl(product.sku, 'small')
         setPrefetchedImages(prev => new Set([...prev, product.sku]))
       }
     })
