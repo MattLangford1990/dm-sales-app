@@ -1612,22 +1612,30 @@ async def export_quote_pdf(
             elements.append(info_table)
             elements.append(Spacer(1, 6*mm))
         
-        # Fetch images from Cloudinary if requested
+        # Fetch images from self-hosted CDN
         image_cache = {}
         if request.include_images:
-            cloudinary_base = f"https://res.cloudinary.com/{settings.cloudinary_cloud_name}/image/upload"
+            cdn_base = "https://cdn.appdmbrands.com/products"
+            print(f"PDF IMAGES: Fetching images for {len(request.items)} items from {cdn_base}")
             async with httpx.AsyncClient(timeout=10.0) as client:
                 for item in request.items:
                     if item.sku:
-                        # Convert SKU for Cloudinary (dots to underscores for My Flame)
-                        cloudinary_sku = item.sku.replace('.', '_')
-                        img_url = f"{cloudinary_base}/w_120,h_120,c_pad,b_white,q_80/products/{cloudinary_sku}.jpg"
-                        try:
-                            response = await client.get(img_url)
-                            if response.status_code == 200:
-                                image_cache[item.sku] = response.content
-                        except:
-                            pass  # Skip failed images
+                        # Convert SKU for CDN (dots to underscores for My Flame)
+                        cdn_sku = item.sku.replace('.', '_')
+                        # Try jpg first, then png
+                        for ext in ['jpg', 'png']:
+                            img_url = f"{cdn_base}/{cdn_sku}.{ext}"
+                            try:
+                                print(f"PDF IMAGES: Trying {img_url}")
+                                response = await client.get(img_url)
+                                print(f"PDF IMAGES: Response status {response.status_code} for {img_url}")
+                                if response.status_code == 200:
+                                    image_cache[item.sku] = response.content
+                                    print(f"PDF IMAGES: Cached {item.sku} ({len(response.content)} bytes)")
+                                    break  # Found image, stop trying extensions
+                            except Exception as img_err:
+                                print(f"PDF IMAGES: Error fetching {img_url}: {img_err}")
+            print(f"PDF IMAGES: Cached {len(image_cache)} images")
         
         # Build product rows - each product is a mini-table row
         # Column widths: Image (25mm), Details (flex), Qty (18mm), Price (22mm), Total (25mm)
