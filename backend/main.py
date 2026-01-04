@@ -2091,6 +2091,30 @@ async def get_catalogues(agent: TokenData = Depends(get_current_agent)):
     return {"catalogues": filtered}
 
 
+@app.get("/api/public/catalogues")
+async def get_public_catalogues():
+    """
+    Get all catalogues (public endpoint for trade portal).
+    No authentication required - returns all catalogues with URLs.
+    """
+    catalogues = load_catalogues()
+    # Only return catalogues that have a URL set
+    public_catalogues = [
+        {
+            "id": cat.get("id"),
+            "brand": cat.get("brand"),
+            "name": cat.get("name"),
+            "description": cat.get("description", ""),
+            "url": cat.get("url"),
+            "size_mb": cat.get("size_mb", 0),
+            "updated": cat.get("updated_at") or cat.get("created_at")
+        }
+        for cat in catalogues
+        if cat.get("url")
+    ]
+    return {"catalogues": public_catalogues}
+
+
 @app.get("/api/admin/catalogues")
 async def admin_list_catalogues(agent: TokenData = Depends(require_admin)):
     """List all catalogues with admin details"""
