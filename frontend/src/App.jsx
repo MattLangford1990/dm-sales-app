@@ -104,10 +104,64 @@ const skuToCloudinaryId = skuToCdnId
 
 // Get image URL from self-hosted CDN
 // Size parameter kept for API compatibility but not used (CDN serves full images)
-const getImageUrl = (sku, size = 'medium') => {
+// extension parameter allows trying different formats (jpg vs png)
+const getImageUrl = (sku, size = 'medium', extension = 'jpg') => {
   if (!sku) return null
   const cdnSku = skuToCdnId(sku)
-  return `${CDN_BASE}/products/${cdnSku}.jpg`
+  return `${CDN_BASE}/products/${cdnSku}.${extension}`
+}
+
+// ProductImage component that tries jpg first, then png as fallback
+const ProductImage = ({ sku, alt, className, style, onClick }) => {
+  const [extension, setExtension] = useState('jpg')
+  const [failed, setFailed] = useState(false)
+  
+  const handleError = () => {
+    if (extension === 'jpg') {
+      // Try png as fallback
+      setExtension('png')
+    } else {
+      // Both failed, show placeholder
+      setFailed(true)
+    }
+  }
+  
+  // Reset state when SKU changes
+  useEffect(() => {
+    setExtension('jpg')
+    setFailed(false)
+  }, [sku])
+  
+  if (!sku || failed) {
+    return (
+      <div 
+        className={className} 
+        style={{ 
+          ...style, 
+          display: 'flex', 
+          alignItems: 'center', 
+          justifyContent: 'center',
+          backgroundColor: '#f3f4f6',
+          color: '#9ca3af'
+        }}
+        onClick={onClick}
+      >
+        <span style={{ fontSize: '0.75rem' }}>No image</span>
+      </div>
+    )
+  }
+  
+  return (
+    <img
+      src={getImageUrl(sku, 'medium', extension)}
+      alt={alt || sku}
+      className={className}
+      style={style}
+      onClick={onClick}
+      onError={handleError}
+      loading="lazy"
+    />
+  )
 }
 
 async function apiRequest(endpoint, options = {}) {
@@ -801,14 +855,28 @@ function LoadingSpinner() {
 
 // Smart image component - uses Cloudinary CDN directly
 function OfflineImage({ sku, alt, className, fallbackIcon = '📦', size = 'small', imageUrl = null }) {
-  // Use imageUrl if provided (e.g. Elvang), otherwise use Cloudinary path
-  const imageSrc = imageUrl || (sku ? getImageUrl(sku, size) : null)
+  // Use imageUrl if provided (e.g. Elvang), otherwise use CDN path
+  const [extension, setExtension] = useState('jpg')
   const [failed, setFailed] = useState(false)
   
-  // Reset failed state when image source changes
+  // Compute image source - if imageUrl provided use it directly, otherwise build CDN URL
+  const imageSrc = imageUrl || (sku ? getImageUrl(sku, size, extension) : null)
+  
+  // Reset state when sku or imageUrl changes
   useEffect(() => {
+    setExtension('jpg')
     setFailed(false)
-  }, [imageSrc])
+  }, [sku, imageUrl])
+  
+  const handleError = () => {
+    if (!imageUrl && extension === 'jpg') {
+      // Try png as fallback (My Flame products use .png)
+      setExtension('png')
+    } else {
+      // Both failed or using custom imageUrl, show placeholder
+      setFailed(true)
+    }
+  }
   
   if (!imageSrc || failed) {
     return (
@@ -823,7 +891,7 @@ function OfflineImage({ sku, alt, className, fallbackIcon = '📦', size = 'smal
       src={imageSrc}
       alt={alt}
       className={className}
-      onError={() => setFailed(true)}
+      onError={handleError}
       loading="lazy"
     />
   )
