@@ -1146,7 +1146,7 @@ function LoginPage() {
         )}
         
         <div className="text-center mb-8">
-          <img src="/logo.JPG" alt="DMB Logo" className="h-20 mx-auto mb-4 rounded-lg" />
+          <img src="/logo.png" alt="DMB Logo" className="h-20 mx-auto mb-4" />
           <h1 className="text-3xl font-bold text-gray-800">DMB Sales</h1>
           <p className="text-gray-500 mt-2">Sign in to continue</p>
         </div>
@@ -1248,7 +1248,7 @@ function HomePage({ onNavigate }) {
       <div className="bg-gradient-to-r from-plum-600 to-plum-500 text-white p-6">
         <div className="flex justify-between items-start">
           <div className="flex items-center gap-3">
-            <img src="/logo.JPG" alt="DMB Logo" className="h-14 rounded-xl shadow-lg" />
+            <img src="/logo.png" alt="DMB Logo" className="h-14" />
             <div>
               <h1 className="text-2xl font-bold">Welcome back, {agent?.name?.split(' ')[0]}!</h1>
               <p className="text-plum-200 text-sm">{agent?.brands?.length} brands • DM Brands Ltd</p>
