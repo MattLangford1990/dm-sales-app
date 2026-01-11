@@ -3090,6 +3090,14 @@ async def trade_show_capture(data: TradeShowCaptureRequest):
 
 # Serve frontend static files in production
 static_dir = os.path.join(os.path.dirname(__file__), "static")
+
+# Explicit route for show-capture.html (must be before catch-all)
+@app.get("/show-capture.html")
+async def serve_show_capture():
+    file_path = os.path.join(static_dir, "show-capture.html")
+    if os.path.isfile(file_path):
+        return FileResponse(file_path, media_type="text/html")
+    raise HTTPException(status_code=404, detail="Show capture page not found")
 print(f"STARTUP: Looking for static dir at: {static_dir}")
 print(f"STARTUP: Static dir exists: {os.path.exists(static_dir)}")
 

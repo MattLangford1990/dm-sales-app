@@ -12,7 +12,10 @@ __pycache__/
 
 # Build outputs
 frontend/dist/
-backend/static/
+backend/static/*
+!backend/static/show-capture.html
+!backend/static/feeds/
+!backend/static/catalogues/
 
 # IDE
 .vscode/
