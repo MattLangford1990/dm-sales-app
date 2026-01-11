@@ -38,6 +38,12 @@ fi
 # Create feeds directory if it doesn't exist
 mkdir -p backend/static/feeds
 
+# Copy show-capture.html from templates (not affected by static dir wipe)
+if [ -f "backend/templates/show-capture.html" ]; then
+    echo "Copying show-capture.html from templates..."
+    cp backend/templates/show-capture.html backend/static/show-capture.html
+fi
+
 echo "Installing backend dependencies..."
 cd backend
 pip install -r requirements.txt
