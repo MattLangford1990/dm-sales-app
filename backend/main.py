@@ -3097,12 +3097,23 @@ async def serve_show_capture():
     # Try templates directory first (survives build process)
     templates_dir = os.path.join(os.path.dirname(__file__), "templates")
     template_path = os.path.join(templates_dir, "show-capture.html")
+    print(f"SHOW-CAPTURE: Looking for template at: {template_path}")
+    print(f"SHOW-CAPTURE: Template exists: {os.path.isfile(template_path)}")
     if os.path.isfile(template_path):
+        print(f"SHOW-CAPTURE: Serving from templates")
         return FileResponse(template_path, media_type="text/html")
     # Fallback to static directory
     file_path = os.path.join(static_dir, "show-capture.html")
+    print(f"SHOW-CAPTURE: Looking for static at: {file_path}")
+    print(f"SHOW-CAPTURE: Static exists: {os.path.isfile(file_path)}")
     if os.path.isfile(file_path):
+        print(f"SHOW-CAPTURE: Serving from static")
         return FileResponse(file_path, media_type="text/html")
+    # List what's in templates dir
+    if os.path.exists(templates_dir):
+        print(f"SHOW-CAPTURE: Templates dir contents: {os.listdir(templates_dir)}")
+    else:
+        print(f"SHOW-CAPTURE: Templates dir does not exist")
     raise HTTPException(status_code=404, detail="Show capture page not found")
 print(f"STARTUP: Looking for static dir at: {static_dir}")
 print(f"STARTUP: Static dir exists: {os.path.exists(static_dir)}")
