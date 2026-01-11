@@ -3386,6 +3386,47 @@ function CatalogueRequestsSection() {
     }
   }
   
+  const handleExportToExcel = (exportAll = false) => {
+    const toExport = exportAll ? requests : requests.filter(r => !r.is_read)
+    if (toExport.length === 0) {
+      addToast('No requests to export', 'error')
+      return
+    }
+    
+    // Build CSV content
+    const headers = ['Date', 'Business Name', 'First Name', 'Surname', 'Email', 'Phone', 'Address', 'Town', 'Postcode', 'Format', 'Brands', 'Notes']
+    const rows = toExport.map(req => [
+      req.created_at ? new Date(req.created_at).toLocaleDateString('en-GB') : '',
+      req.business_name || '',
+      req.first_name || '',
+      req.surname || '',
+      req.email || '',
+      req.phone || '',
+      [req.address1, req.address2].filter(Boolean).join(', '),
+      req.town || '',
+      req.postcode || '',
+      req.catalogue_format || '',
+      (req.brands || []).join('; '),
+      req.notes || ''
+    ])
+    
+    // Create CSV
+    const csvContent = [
+      headers.join(','),
+      ...rows.map(row => row.map(cell => `"${(cell || '').toString().replace(/"/g, '""')}"`).join(','))
+    ].join('\n')
+    
+    // Download
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' })
+    const link = document.createElement('a')
+    link.href = URL.createObjectURL(blob)
+    const dateStr = new Date().toISOString().split('T')[0]
+    link.download = `catalogue-requests-${exportAll ? 'all' : 'new'}-${dateStr}.csv`
+    link.click()
+    
+    addToast(`Exported ${toExport.length} requests`, 'success')
+  }
+  
   const formatDate = (isoString) => {
     if (!isoString) return ''
     const date = new Date(isoString)
@@ -3428,16 +3469,34 @@ function CatalogueRequestsSection() {
             </div>
           ) : (
             <>
-              {unreadCount > 0 && (
-                <div className="p-3 bg-gray-50 border-b border-gray-200">
+              <div className="p-3 bg-gray-50 border-b border-gray-200 flex justify-between items-center flex-wrap gap-2">
+                <div className="flex gap-3">
+                  {unreadCount > 0 && (
+                    <button
+                      onClick={(e) => { e.stopPropagation(); handleMarkAllRead(); }}
+                      className="text-sm text-primary-600 font-medium hover:underline"
+                    >
+                      Mark all as read
+                    </button>
+                  )}
+                </div>
+                <div className="flex gap-2">
+                  {unreadCount > 0 && (
+                    <button
+                      onClick={(e) => { e.stopPropagation(); handleExportToExcel(false); }}
+                      className="text-sm bg-green-600 text-white px-3 py-1 rounded-lg font-medium hover:bg-green-700 transition"
+                    >
+                      📥 Export New ({unreadCount})
+                    </button>
+                  )}
                   <button
-                    onClick={handleMarkAllRead}
-                    className="text-sm text-primary-600 font-medium hover:underline"
+                    onClick={(e) => { e.stopPropagation(); handleExportToExcel(true); }}
+                    className="text-sm bg-gray-600 text-white px-3 py-1 rounded-lg font-medium hover:bg-gray-700 transition"
                   >
-                    Mark all as read
+                    📥 Export All ({requests.length})
                   </button>
                 </div>
-              )}
+              </div>
               <div className="divide-y divide-gray-100 max-h-96 overflow-auto">
                 {requests.map(req => (
                   <div 
