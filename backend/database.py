@@ -56,6 +56,28 @@ class Catalogue(Base):
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
 
+class CatalogueRequest(Base):
+    """Stores trade show / catalogue request submissions"""
+    __tablename__ = "catalogue_requests"
+    
+    id = Column(String, primary_key=True)  # UUID
+    first_name = Column(String, nullable=False)
+    surname = Column(String, nullable=False)
+    email = Column(String, nullable=False)
+    phone = Column(String, default="")
+    business_name = Column(String, nullable=False)
+    address1 = Column(String, nullable=False)
+    address2 = Column(String, default="")
+    town = Column(String, nullable=False)
+    postcode = Column(String, nullable=False)
+    catalogue_format = Column(String, nullable=False)  # digital, physical, both
+    brands = Column(JSON, default=list)  # List of brand names
+    notes = Column(Text, default="")
+    captured_by = Column(String, default="")  # Agent name if logged in
+    is_read = Column(Boolean, default=False)  # For admin notification
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
 class ProductFeed(Base):
     """Stores the pre-generated product feed JSON for fast sync"""
     __tablename__ = "product_feeds"

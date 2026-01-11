@@ -272,23 +272,8 @@
             submitBtn.classList.remove('loading');
             submitBtn.disabled = false;
             
-            if (apiResult && apiResult.emails) {
-                if (apiResult.emails.internal_sent && apiResult.emails.customer_sent) {
-                    emailStatus.className = 'email-status sent';
-                    emailStatus.textContent = '✓ Confirmation emails sent';
-                } else if (apiResult.emails.internal_sent || apiResult.emails.customer_sent) {
-                    emailStatus.className = 'email-status sent';
-                    emailStatus.textContent = '✓ Partial email success';
-                } else {
-                    emailStatus.className = 'email-status failed';
-                    emailStatus.textContent = '⚠ Emails not sent (data saved locally)';
-                }
-                emailStatus.style.display = 'inline-block';
-            } else {
-                emailStatus.className = 'email-status failed';
-                emailStatus.textContent = '⚠ Offline - data saved locally only';
-                emailStatus.style.display = 'inline-block';
-            }
+            // Hide email status - no longer used
+            emailStatus.style.display = 'none';
             
             successOverlay.classList.add('show');
         });

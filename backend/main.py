@@ -10,9 +10,7 @@ from typing import Optional, List, Dict
 import re
 import os
 import io
-import smtplib
-from email.mime.text import MIMEText
-from email.mime.multipart import MIMEMultipart
+import uuid
 
 import json
 from config import get_settings
@@ -2905,7 +2903,9 @@ async def admin_list_open_pos(agent: TokenData = Depends(require_admin)):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-# ============ Trade Show Capture Email ============
+# ============ Trade Show / Catalogue Request Capture ============
+
+from database import CatalogueRequest as CatalogueRequestModel
 
 class TradeShowCaptureRequest(BaseModel):
     firstName: str
@@ -2922,168 +2922,171 @@ class TradeShowCaptureRequest(BaseModel):
     notes: Optional[str] = None
 
 
-def send_trade_show_email(data: TradeShowCaptureRequest) -> dict:
-    """
-    Send trade show capture emails:
-    1. Internal notification to sales@dmbrands.co.uk
-    2. Confirmation to the customer
-    """
-    results = {"internal": False, "customer": False, "errors": []}
-    
-    # Check if email is configured
-    if not settings.smtp_user or not settings.smtp_password or settings.smtp_password == "YOUR_GMAIL_APP_PASSWORD":
-        results["errors"].append("Email not configured - SMTP_PASSWORD not set in .env")
-        return results
-    
-    # Build the address string
-    address_parts = [data.address1]
-    if data.address2:
-        address_parts.append(data.address2)
-    address_parts.extend([data.town, data.postcode])
-    full_address = ", ".join(address_parts)
-    
-    # Brand list
-    brand_list = ", ".join(data.brands)
-    
-    # ===== INTERNAL EMAIL TO SALES =====
-    try:
-        internal_html = f"""
-        <html>
-        <body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
-            <div style="max-width: 600px; margin: 0 auto; padding: 20px;">
-                <div style="background: #7B4B6A; color: white; padding: 20px; border-radius: 8px 8px 0 0;">
-                    <h1 style="margin: 0; font-size: 24px;">New Catalogue Request</h1>
-                    <p style="margin: 5px 0 0 0; opacity: 0.9;">Trade Show Lead Capture</p>
-                </div>
-                
-                <div style="background: #f8f6f3; padding: 20px; border-radius: 0 0 8px 8px;">
-                    <h2 style="color: #7B4B6A; margin-top: 0;">Contact Details</h2>
-                    <table style="width: 100%; border-collapse: collapse;">
-                        <tr><td style="padding: 8px 0; border-bottom: 1px solid #e0e0e0;"><strong>Name:</strong></td><td style="padding: 8px 0; border-bottom: 1px solid #e0e0e0;">{data.firstName} {data.surname}</td></tr>
-                        <tr><td style="padding: 8px 0; border-bottom: 1px solid #e0e0e0;"><strong>Business:</strong></td><td style="padding: 8px 0; border-bottom: 1px solid #e0e0e0;">{data.businessName}</td></tr>
-                        <tr><td style="padding: 8px 0; border-bottom: 1px solid #e0e0e0;"><strong>Email:</strong></td><td style="padding: 8px 0; border-bottom: 1px solid #e0e0e0;"><a href="mailto:{data.email}">{data.email}</a></td></tr>
-                        <tr><td style="padding: 8px 0; border-bottom: 1px solid #e0e0e0;"><strong>Phone:</strong></td><td style="padding: 8px 0; border-bottom: 1px solid #e0e0e0;">{data.phone or 'Not provided'}</td></tr>
-                        <tr><td style="padding: 8px 0; border-bottom: 1px solid #e0e0e0;"><strong>Address:</strong></td><td style="padding: 8px 0; border-bottom: 1px solid #e0e0e0;">{full_address}</td></tr>
-                    </table>
-                    
-                    <h2 style="color: #7B4B6A;">Request Details</h2>
-                    <table style="width: 100%; border-collapse: collapse;">
-                        <tr><td style="padding: 8px 0; border-bottom: 1px solid #e0e0e0;"><strong>Format:</strong></td><td style="padding: 8px 0; border-bottom: 1px solid #e0e0e0;">{data.catalogueFormat.title()}</td></tr>
-                        <tr><td style="padding: 8px 0; border-bottom: 1px solid #e0e0e0;"><strong>Brands:</strong></td><td style="padding: 8px 0; border-bottom: 1px solid #e0e0e0;">{brand_list}</td></tr>
-                    </table>
-                    
-                    {f'<h2 style="color: #7B4B6A;">Notes</h2><p style="background: white; padding: 15px; border-radius: 4px; margin: 0;">{data.notes}</p>' if data.notes else ''}
-                    
-                    <p style="margin-top: 20px; padding-top: 20px; border-top: 1px solid #e0e0e0; font-size: 12px; color: #666;">
-                        Captured: {datetime.now().strftime('%d %B %Y at %H:%M')}
-                    </p>
-                </div>
-            </div>
-        </body>
-        </html>
-        """
-        
-        msg = MIMEMultipart('alternative')
-        msg['Subject'] = f"New Catalogue Request: {data.businessName}"
-        msg['From'] = settings.smtp_user
-        msg['To'] = settings.sales_email
-        msg.attach(MIMEText(internal_html, 'html'))
-        
-        with smtplib.SMTP(settings.smtp_host, settings.smtp_port) as server:
-            server.starttls()
-            server.login(settings.smtp_user, settings.smtp_password)
-            server.send_message(msg)
-        
-        results["internal"] = True
-        print(f"TRADE SHOW EMAIL: Internal email sent to {settings.sales_email}")
-        
-    except Exception as e:
-        print(f"TRADE SHOW EMAIL ERROR (internal): {e}")
-        results["errors"].append(f"Internal email failed: {str(e)}")
-    
-    # ===== CUSTOMER CONFIRMATION EMAIL =====
-    try:
-        customer_html = f"""
-        <html>
-        <body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
-            <div style="max-width: 600px; margin: 0 auto; padding: 20px;">
-                <div style="background: #7B4B6A; color: white; padding: 30px; border-radius: 8px 8px 0 0; text-align: center;">
-                    <h1 style="margin: 0; font-size: 28px;">Thank You!</h1>
-                    <p style="margin: 10px 0 0 0; opacity: 0.9; font-size: 16px;">We've received your catalogue request</p>
-                </div>
-                
-                <div style="background: #f8f6f3; padding: 30px; border-radius: 0 0 8px 8px;">
-                    <p style="font-size: 16px;">Dear {data.firstName},</p>
-                    
-                    <p>Thank you for visiting us and expressing interest in our brands. We're delighted to arrange catalogues for you.</p>
-                    
-                    <div style="background: white; padding: 20px; border-radius: 8px; margin: 20px 0;">
-                        <h3 style="color: #7B4B6A; margin-top: 0;">Your Request Summary</h3>
-                        <p><strong>Brands:</strong> {brand_list}</p>
-                        <p><strong>Format:</strong> {data.catalogueFormat.title()}</p>
-                    </div>
-                    
-                    <p>Our team will be in touch shortly to arrange delivery of your catalogues{' and follow up on any questions you may have' if data.notes else ''}.</p>
-                    
-                    <p>In the meantime, feel free to visit our website at <a href="https://dmbrands.co.uk" style="color: #4EB8A9;">dmbrands.co.uk</a> to explore our full range.</p>
-                    
-                    <p style="margin-top: 30px;">Best regards,<br><strong>The DM Brands Team</strong></p>
-                    
-                    <div style="margin-top: 30px; padding-top: 20px; border-top: 1px solid #e0e0e0; font-size: 12px; color: #666; text-align: center;">
-                        <p>DM Brands Ltd<br>
-                        <a href="mailto:sales@dmbrands.co.uk" style="color: #4EB8A9;">sales@dmbrands.co.uk</a> | 
-                        <a href="https://dmbrands.co.uk" style="color: #4EB8A9;">dmbrands.co.uk</a></p>
-                    </div>
-                </div>
-            </div>
-        </body>
-        </html>
-        """
-        
-        msg = MIMEMultipart('alternative')
-        msg['Subject'] = f"Thank you for your interest in DM Brands"
-        msg['From'] = settings.smtp_user
-        msg['To'] = data.email
-        msg.attach(MIMEText(customer_html, 'html'))
-        
-        with smtplib.SMTP(settings.smtp_host, settings.smtp_port) as server:
-            server.starttls()
-            server.login(settings.smtp_user, settings.smtp_password)
-            server.send_message(msg)
-        
-        results["customer"] = True
-        print(f"TRADE SHOW EMAIL: Customer confirmation sent to {data.email}")
-        
-    except Exception as e:
-        print(f"TRADE SHOW EMAIL ERROR (customer): {e}")
-        results["errors"].append(f"Customer email failed: {str(e)}")
-    
-    return results
-
-
 @app.post("/api/public/trade-show-capture")
 async def trade_show_capture(data: TradeShowCaptureRequest):
     """
     Public endpoint for trade show lead capture.
-    Saves lead data and sends notification emails.
+    Saves lead data to database for admin review.
     No authentication required.
     """
     try:
-        # Send emails
-        email_results = send_trade_show_email(data)
+        db = SessionLocal()
+        try:
+            # Create new catalogue request
+            request_id = str(uuid.uuid4())
+            new_request = CatalogueRequestModel(
+                id=request_id,
+                first_name=data.firstName,
+                surname=data.surname,
+                email=data.email,
+                phone=data.phone or "",
+                business_name=data.businessName,
+                address1=data.address1,
+                address2=data.address2 or "",
+                town=data.town,
+                postcode=data.postcode.upper(),
+                catalogue_format=data.catalogueFormat,
+                brands=data.brands,
+                notes=data.notes or "",
+                is_read=False
+            )
+            db.add(new_request)
+            db.commit()
+            print(f"CATALOGUE REQUEST: Saved {data.businessName} - {data.email}")
+        finally:
+            db.close()
         
         return {
             "success": True,
-            "message": "Thank you! Your details have been received.",
-            "emails": {
-                "internal_sent": email_results["internal"],
-                "customer_sent": email_results["customer"]
-            },
-            "errors": email_results["errors"] if email_results["errors"] else None
+            "message": "Thank you! Your details have been received."
         }
     except Exception as e:
         print(f"TRADE SHOW CAPTURE ERROR: {e}")
+        import traceback
+        traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/admin/catalogue-requests")
+async def admin_get_catalogue_requests(
+    agent: TokenData = Depends(require_admin)
+):
+    """
+    Get all catalogue requests (admin only).
+    Returns requests sorted by date, newest first.
+    """
+    db = SessionLocal()
+    try:
+        requests = db.query(CatalogueRequestModel).order_by(
+            CatalogueRequestModel.created_at.desc()
+        ).all()
+        
+        return {
+            "requests": [
+                {
+                    "id": req.id,
+                    "first_name": req.first_name,
+                    "surname": req.surname,
+                    "email": req.email,
+                    "phone": req.phone,
+                    "business_name": req.business_name,
+                    "address1": req.address1,
+                    "address2": req.address2,
+                    "town": req.town,
+                    "postcode": req.postcode,
+                    "catalogue_format": req.catalogue_format,
+                    "brands": req.brands,
+                    "notes": req.notes,
+                    "is_read": req.is_read,
+                    "created_at": req.created_at.isoformat() if req.created_at else None
+                }
+                for req in requests
+            ],
+            "total": len(requests),
+            "unread": len([r for r in requests if not r.is_read])
+        }
+    finally:
+        db.close()
+
+
+@app.get("/api/admin/catalogue-requests/unread-count")
+async def admin_get_unread_count(
+    agent: TokenData = Depends(require_admin)
+):
+    """
+    Get count of unread catalogue requests (admin only).
+    Used for notification badge.
+    """
+    db = SessionLocal()
+    try:
+        count = db.query(CatalogueRequestModel).filter(
+            CatalogueRequestModel.is_read == False
+        ).count()
+        return {"unread_count": count}
+    finally:
+        db.close()
+
+
+@app.put("/api/admin/catalogue-requests/{request_id}/read")
+async def admin_mark_request_read(
+    request_id: str,
+    agent: TokenData = Depends(require_admin)
+):
+    """
+    Mark a catalogue request as read (admin only).
+    """
+    db = SessionLocal()
+    try:
+        req = db.query(CatalogueRequestModel).filter(
+            CatalogueRequestModel.id == request_id
+        ).first()
+        if not req:
+            raise HTTPException(status_code=404, detail="Request not found")
+        req.is_read = True
+        db.commit()
+        return {"success": True}
+    finally:
+        db.close()
+
+
+@app.put("/api/admin/catalogue-requests/mark-all-read")
+async def admin_mark_all_read(
+    agent: TokenData = Depends(require_admin)
+):
+    """
+    Mark all catalogue requests as read (admin only).
+    """
+    db = SessionLocal()
+    try:
+        db.query(CatalogueRequestModel).filter(
+            CatalogueRequestModel.is_read == False
+        ).update({"is_read": True})
+        db.commit()
+        return {"success": True}
+    finally:
+        db.close()
+
+
+@app.delete("/api/admin/catalogue-requests/{request_id}")
+async def admin_delete_request(
+    request_id: str,
+    agent: TokenData = Depends(require_admin)
+):
+    """
+    Delete a catalogue request (admin only).
+    """
+    db = SessionLocal()
+    try:
+        req = db.query(CatalogueRequestModel).filter(
+            CatalogueRequestModel.id == request_id
+        ).first()
+        if not req:
+            raise HTTPException(status_code=404, detail="Request not found")
+        db.delete(req)
+        db.commit()
+        return {"success": True}
+    finally:
+        db.close()
 
 
 # ============ Static Files (Production) ============
