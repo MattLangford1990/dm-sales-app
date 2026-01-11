@@ -3139,6 +3139,14 @@ if os.path.exists(static_dir):
         if full_path.startswith("api/"):
             raise HTTPException(status_code=404)
         
+        # Check templates directory first for HTML files (e.g., show-capture.html)
+        if full_path.endswith('.html'):
+            templates_dir = os.path.join(os.path.dirname(__file__), "templates")
+            template_path = os.path.join(templates_dir, full_path)
+            if os.path.isfile(template_path):
+                print(f"SERVE_SPA: Serving {full_path} from templates")
+                return FileResponse(template_path, media_type="text/html")
+        
         # Serve static files if they exist
         file_path = os.path.join(static_dir, full_path)
         if os.path.isfile(file_path):
