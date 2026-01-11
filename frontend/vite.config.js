@@ -38,6 +38,10 @@ export default defineConfig({
       },
       workbox: {
         globPatterns: ['**/*.{js,css,html,ico,png,svg}'],
+        // Don't precache show-capture.html - it's a separate standalone page
+        globIgnores: ['**/show-capture.html'],
+        navigateFallback: '/index.html',
+        navigateFallbackDenylist: [/^\/api/, /^\/show-capture\.html/],
         runtimeCaching: [
           {
             urlPattern: /\/api\/products\/[^\/]+\/image/,
