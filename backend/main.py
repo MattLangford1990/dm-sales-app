@@ -3091,9 +3091,15 @@ async def trade_show_capture(data: TradeShowCaptureRequest):
 # Serve frontend static files in production
 static_dir = os.path.join(os.path.dirname(__file__), "static")
 
-# Explicit route for show-capture.html (must be before catch-all)
+# Explicit route for show-capture.html (serve from templates, not static)
 @app.get("/show-capture.html")
 async def serve_show_capture():
+    # Try templates directory first (survives build process)
+    templates_dir = os.path.join(os.path.dirname(__file__), "templates")
+    template_path = os.path.join(templates_dir, "show-capture.html")
+    if os.path.isfile(template_path):
+        return FileResponse(template_path, media_type="text/html")
+    # Fallback to static directory
     file_path = os.path.join(static_dir, "show-capture.html")
     if os.path.isfile(file_path):
         return FileResponse(file_path, media_type="text/html")
