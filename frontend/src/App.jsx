@@ -3323,6 +3323,250 @@ function SyncPrompts() {
   return null
 }
 
+// Catalogue Requests Section Component (Admin)
+function CatalogueRequestsSection() {
+  const [requests, setRequests] = useState([])
+  const [unreadCount, setUnreadCount] = useState(0)
+  const [loading, setLoading] = useState(true)
+  const [expanded, setExpanded] = useState(false)
+  const [selectedRequest, setSelectedRequest] = useState(null)
+  const { addToast } = useToast()
+  
+  const loadRequests = async () => {
+    try {
+      setLoading(true)
+      const data = await apiRequest('/admin/catalogue-requests')
+      setRequests(data.requests || [])
+      setUnreadCount(data.unread || 0)
+    } catch (err) {
+      console.error('Failed to load catalogue requests:', err)
+    } finally {
+      setLoading(false)
+    }
+  }
+  
+  useEffect(() => {
+    loadRequests()
+  }, [])
+  
+  const handleMarkRead = async (requestId) => {
+    try {
+      await apiRequest(`/admin/catalogue-requests/${requestId}/read`, { method: 'PUT' })
+      setRequests(prev => prev.map(r => r.id === requestId ? { ...r, is_read: true } : r))
+      setUnreadCount(prev => Math.max(0, prev - 1))
+    } catch (err) {
+      addToast('Failed to mark as read', 'error')
+    }
+  }
+  
+  const handleMarkAllRead = async () => {
+    try {
+      await apiRequest('/admin/catalogue-requests/mark-all-read', { method: 'PUT' })
+      setRequests(prev => prev.map(r => ({ ...r, is_read: true })))
+      setUnreadCount(0)
+      addToast('All marked as read', 'success')
+    } catch (err) {
+      addToast('Failed to mark all as read', 'error')
+    }
+  }
+  
+  const handleDelete = async (requestId) => {
+    if (!confirm('Delete this catalogue request?')) return
+    try {
+      await apiRequest(`/admin/catalogue-requests/${requestId}`, { method: 'DELETE' })
+      const deleted = requests.find(r => r.id === requestId)
+      setRequests(prev => prev.filter(r => r.id !== requestId))
+      if (deleted && !deleted.is_read) {
+        setUnreadCount(prev => Math.max(0, prev - 1))
+      }
+      setSelectedRequest(null)
+      addToast('Request deleted', 'success')
+    } catch (err) {
+      addToast('Failed to delete', 'error')
+    }
+  }
+  
+  const formatDate = (isoString) => {
+    if (!isoString) return ''
+    const date = new Date(isoString)
+    return date.toLocaleDateString('en-GB', { 
+      day: 'numeric', 
+      month: 'short',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit'
+    })
+  }
+  
+  return (
+    <div className="bg-white rounded-xl border border-gray-200">
+      <div 
+        className="p-4 border-b border-gray-200 flex justify-between items-center cursor-pointer"
+        onClick={() => setExpanded(!expanded)}
+      >
+        <div className="flex items-center gap-2">
+          <h3 className="font-semibold text-lg">📋 Catalogue Requests</h3>
+          {unreadCount > 0 && (
+            <span className="bg-red-500 text-white text-xs px-2 py-0.5 rounded-full font-bold">
+              {unreadCount} new
+            </span>
+          )}
+        </div>
+        <span className="text-gray-400">{expanded ? '▲' : '▼'}</span>
+      </div>
+      
+      {expanded && (
+        <div>
+          {loading ? (
+            <div className="p-8 text-center">
+              <div className="animate-spin rounded-full h-8 w-8 border-4 border-primary-600 border-t-transparent mx-auto"></div>
+            </div>
+          ) : requests.length === 0 ? (
+            <div className="p-8 text-center text-gray-500">
+              <span className="text-4xl">📭</span>
+              <p className="mt-2">No catalogue requests yet</p>
+            </div>
+          ) : (
+            <>
+              {unreadCount > 0 && (
+                <div className="p-3 bg-gray-50 border-b border-gray-200">
+                  <button
+                    onClick={handleMarkAllRead}
+                    className="text-sm text-primary-600 font-medium hover:underline"
+                  >
+                    Mark all as read
+                  </button>
+                </div>
+              )}
+              <div className="divide-y divide-gray-100 max-h-96 overflow-auto">
+                {requests.map(req => (
+                  <div 
+                    key={req.id} 
+                    className={`p-4 cursor-pointer transition hover:bg-gray-50 ${!req.is_read ? 'bg-blue-50' : ''}`}
+                    onClick={() => {
+                      setSelectedRequest(req)
+                      if (!req.is_read) handleMarkRead(req.id)
+                    }}
+                  >
+                    <div className="flex items-start justify-between">
+                      <div className="flex-1">
+                        <div className="flex items-center gap-2">
+                          {!req.is_read && <span className="w-2 h-2 bg-blue-500 rounded-full"></span>}
+                          <span className="font-medium">{req.business_name}</span>
+                        </div>
+                        <div className="text-sm text-gray-500">
+                          {req.first_name} {req.surname} • {req.email}
+                        </div>
+                        <div className="text-xs text-gray-400 mt-1">
+                          {formatDate(req.created_at)} • {req.catalogue_format}
+                        </div>
+                      </div>
+                      <div className="flex gap-1">
+                        {req.brands?.slice(0, 2).map(brand => (
+                          <span key={brand} className="text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded">
+                            {brand.length > 8 ? brand.substring(0, 8) + '...' : brand}
+                          </span>
+                        ))}
+                        {req.brands?.length > 2 && (
+                          <span className="text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded">
+                            +{req.brands.length - 2}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </>
+          )}
+        </div>
+      )}
+      
+      {/* Request Detail Modal */}
+      {selectedRequest && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl w-full max-w-lg max-h-[90vh] overflow-auto">
+            <div className="p-4 border-b border-gray-200 flex justify-between items-center sticky top-0 bg-white">
+              <h2 className="text-lg font-bold">Catalogue Request</h2>
+              <button onClick={() => setSelectedRequest(null)} className="text-gray-500 text-2xl">&times;</button>
+            </div>
+            
+            <div className="p-4 space-y-4">
+              <div className="bg-gray-50 rounded-lg p-4">
+                <h3 className="font-semibold text-primary-600 mb-2">Business Details</h3>
+                <p className="font-medium text-lg">{selectedRequest.business_name}</p>
+                <p className="text-sm text-gray-600">
+                  {selectedRequest.address1}<br/>
+                  {selectedRequest.address2 && <>{selectedRequest.address2}<br/></>}
+                  {selectedRequest.town}, {selectedRequest.postcode}
+                </p>
+              </div>
+              
+              <div className="bg-gray-50 rounded-lg p-4">
+                <h3 className="font-semibold text-primary-600 mb-2">Contact</h3>
+                <p className="font-medium">{selectedRequest.first_name} {selectedRequest.surname}</p>
+                <p className="text-sm">
+                  <a href={`mailto:${selectedRequest.email}`} className="text-blue-600 hover:underline">
+                    {selectedRequest.email}
+                  </a>
+                </p>
+                {selectedRequest.phone && (
+                  <p className="text-sm">
+                    <a href={`tel:${selectedRequest.phone}`} className="text-blue-600 hover:underline">
+                      {selectedRequest.phone}
+                    </a>
+                  </p>
+                )}
+              </div>
+              
+              <div className="bg-gray-50 rounded-lg p-4">
+                <h3 className="font-semibold text-primary-600 mb-2">Request</h3>
+                <p className="text-sm mb-2">
+                  <span className="font-medium">Format:</span> {selectedRequest.catalogue_format}
+                </p>
+                <p className="text-sm font-medium mb-1">Brands:</p>
+                <div className="flex flex-wrap gap-2">
+                  {selectedRequest.brands?.map(brand => (
+                    <span key={brand} className="bg-primary-100 text-primary-700 px-3 py-1 rounded-full text-sm">
+                      {brand}
+                    </span>
+                  ))}
+                </div>
+              </div>
+              
+              {selectedRequest.notes && (
+                <div className="bg-yellow-50 rounded-lg p-4">
+                  <h3 className="font-semibold text-yellow-700 mb-2">Notes</h3>
+                  <p className="text-sm text-gray-700">{selectedRequest.notes}</p>
+                </div>
+              )}
+              
+              <div className="text-xs text-gray-400 text-center">
+                Submitted: {formatDate(selectedRequest.created_at)}
+              </div>
+            </div>
+            
+            <div className="p-4 border-t border-gray-200 flex gap-2">
+              <a
+                href={`mailto:${selectedRequest.email}?subject=Your DM Brands Catalogue Request&body=Dear ${selectedRequest.first_name},%0D%0A%0D%0AThank you for your interest in DM Brands...`}
+                className="flex-1 py-3 bg-primary-600 text-white rounded-xl font-semibold text-center"
+              >
+                📧 Email Customer
+              </a>
+              <button
+                onClick={() => handleDelete(selectedRequest.id)}
+                className="py-3 px-4 bg-red-100 text-red-600 rounded-xl font-semibold"
+              >
+                🗑️
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
 // Stock Reorder Section Component
 function StockReorderSection() {
   const [loading, setLoading] = useState(false)
@@ -4144,6 +4388,9 @@ function AdminTab() {
           </div>
         </div>
       )}
+      
+      {/* Catalogue Requests Section */}
+      <CatalogueRequestsSection />
       
       {/* Image Sync Section */}
       <div className="bg-white rounded-xl p-4 border border-gray-200">
