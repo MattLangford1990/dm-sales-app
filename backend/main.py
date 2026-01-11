@@ -3135,6 +3135,8 @@ if os.path.exists(static_dir):
     # Serve index.html for all non-API routes (SPA routing)
     @app.get("/{full_path:path}")
     async def serve_spa(full_path: str):
+        print(f"SERVE_SPA: Handling path: {full_path}")
+        
         # Don't intercept API routes
         if full_path.startswith("api/"):
             raise HTTPException(status_code=404)
@@ -3143,16 +3145,20 @@ if os.path.exists(static_dir):
         if full_path.endswith('.html'):
             templates_dir = os.path.join(os.path.dirname(__file__), "templates")
             template_path = os.path.join(templates_dir, full_path)
+            print(f"SERVE_SPA: Checking template at: {template_path}, exists: {os.path.isfile(template_path)}")
             if os.path.isfile(template_path):
                 print(f"SERVE_SPA: Serving {full_path} from templates")
                 return FileResponse(template_path, media_type="text/html")
         
         # Serve static files if they exist
         file_path = os.path.join(static_dir, full_path)
+        print(f"SERVE_SPA: Checking static at: {file_path}, exists: {os.path.isfile(file_path)}")
         if os.path.isfile(file_path):
+            print(f"SERVE_SPA: Serving {full_path} from static")
             return FileResponse(file_path)
         
         # Otherwise serve index.html for SPA routing
+        print(f"SERVE_SPA: Falling back to index.html for {full_path}")
         return FileResponse(os.path.join(static_dir, "index.html"))
 else:
     print("STARTUP: WARNING - No static directory found! Frontend will not be served.")
