@@ -22,6 +22,13 @@ class Settings(BaseSettings):
     # Cron job secret (for automated feed generation)
     cron_secret: str = ""
     
+    # Email (Gmail SMTP)
+    smtp_host: str = "smtp.gmail.com"
+    smtp_port: int = 587
+    smtp_user: str = ""
+    smtp_password: str = ""
+    sales_email: str = "sales@dmbrands.co.uk"
+    
     # App
     debug: bool = False
     

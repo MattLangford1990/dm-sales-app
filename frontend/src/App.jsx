@@ -1350,6 +1350,20 @@ function HomePage({ onNavigate }) {
           )}
         </div>
         
+        {/* Catalogue Request - Trade Show / On the Road */}
+        <div>
+          <button
+            onClick={() => window.open('/show-capture.html', '_blank')}
+            className="w-full bg-gradient-to-r from-primary-400 to-primary-600 text-white rounded-xl p-4 flex items-center gap-4 transition active:scale-95 shadow-md hover:from-primary-500 hover:to-primary-700"
+          >
+            <span className="text-3xl">📝</span>
+            <div className="text-left">
+              <span className="font-semibold text-lg block">Catalogue Request</span>
+              <span className="text-primary-100 text-sm">Capture new customer details</span>
+            </div>
+          </button>
+        </div>
+        
         {/* More Actions */}
         <div>
           <h2 className="text-lg font-semibold text-gray-800 mb-3">More</h2>
