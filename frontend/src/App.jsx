@@ -1353,7 +1353,7 @@ function HomePage({ onNavigate }) {
         {/* Catalogue Request - Trade Show / On the Road */}
         <div>
           <button
-            onClick={() => window.open('/show-capture.html', '_blank')}
+            onClick={() => window.location.href = '/show-capture.html'}
             className="w-full bg-gradient-to-r from-primary-400 to-primary-600 text-white rounded-xl p-4 flex items-center gap-4 transition active:scale-95 shadow-md hover:from-primary-500 hover:to-primary-700"
           >
             <span className="text-3xl">📝</span>
