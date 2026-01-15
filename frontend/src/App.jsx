@@ -3427,6 +3427,75 @@ function CatalogueRequestsSection() {
     addToast(`Exported ${toExport.length} requests`, 'success')
   }
   
+  const handlePrint = (printAll = false) => {
+    const toPrint = printAll ? requests : requests.filter(r => !r.is_read)
+    if (toPrint.length === 0) {
+      addToast('No requests to print', 'error')
+      return
+    }
+    
+    const printWindow = window.open('', '_blank')
+    const dateStr = new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' })
+    
+    printWindow.document.write(`
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <title>Catalogue Requests - ${printAll ? 'All' : 'New'}</title>
+        <style>
+          * { box-sizing: border-box; }
+          body { font-family: Arial, sans-serif; font-size: 11px; line-height: 1.4; padding: 20px; }
+          h1 { font-size: 18px; margin-bottom: 5px; }
+          .subtitle { color: #666; margin-bottom: 20px; }
+          table { width: 100%; border-collapse: collapse; }
+          th, td { border: 1px solid #ddd; padding: 6px 8px; text-align: left; vertical-align: top; }
+          th { background: #f5f5f5; font-weight: bold; white-space: nowrap; }
+          tr:nth-child(even) { background: #fafafa; }
+          .brands { font-size: 10px; color: #666; }
+          .notes { font-style: italic; font-size: 10px; color: #888; }
+          .new-badge { background: #3b82f6; color: white; padding: 2px 6px; border-radius: 10px; font-size: 9px; }
+          @media print {
+            body { padding: 0; }
+            .no-print { display: none; }
+          }
+        </style>
+      </head>
+      <body>
+        <h1>Catalogue Requests - ${printAll ? 'All' : 'New Only'}</h1>
+        <div class="subtitle">Printed: ${dateStr} | Total: ${toPrint.length} requests</div>
+        <table>
+          <thead>
+            <tr>
+              <th>Date</th>
+              <th>Business</th>
+              <th>Contact</th>
+              <th>Email / Phone</th>
+              <th>Address</th>
+              <th>Format</th>
+              <th>Brands</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${toPrint.map(req => `
+              <tr>
+                <td>${req.created_at ? new Date(req.created_at).toLocaleDateString('en-GB') : ''} ${!req.is_read ? '<span class="new-badge">NEW</span>' : ''}</td>
+                <td><strong>${req.business_name || ''}</strong></td>
+                <td>${req.first_name || ''} ${req.surname || ''}</td>
+                <td>${req.email || ''}<br/>${req.phone || ''}</td>
+                <td>${[req.address1, req.address2, req.town, req.postcode].filter(Boolean).join(', ')}</td>
+                <td>${req.catalogue_format || ''}</td>
+                <td><span class="brands">${(req.brands || []).join(', ')}</span>${req.notes ? `<br/><span class="notes">Note: ${req.notes}</span>` : ''}</td>
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>
+        <script>window.onload = function() { window.print(); }</script>
+      </body>
+      </html>
+    `)
+    printWindow.document.close()
+  }
+  
   const formatDate = (isoString) => {
     if (!isoString) return ''
     const date = new Date(isoString)
@@ -3486,14 +3555,20 @@ function CatalogueRequestsSection() {
                       onClick={(e) => { e.stopPropagation(); handleExportToExcel(false); }}
                       className="text-sm bg-green-600 text-white px-3 py-1 rounded-lg font-medium hover:bg-green-700 transition"
                     >
-                      📥 Export New ({unreadCount})
+                      📥 Export New
                     </button>
                   )}
                   <button
                     onClick={(e) => { e.stopPropagation(); handleExportToExcel(true); }}
                     className="text-sm bg-gray-600 text-white px-3 py-1 rounded-lg font-medium hover:bg-gray-700 transition"
                   >
-                    📥 Export All ({requests.length})
+                    📥 Export All
+                  </button>
+                  <button
+                    onClick={(e) => { e.stopPropagation(); handlePrint(true); }}
+                    className="text-sm bg-blue-600 text-white px-3 py-1 rounded-lg font-medium hover:bg-blue-700 transition"
+                  >
+                    🖨️ Print
                   </button>
                 </div>
               </div>

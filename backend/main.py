@@ -27,6 +27,19 @@ def load_pack_quantities():
 
 _pack_quantities = load_pack_quantities()
 
+# Load EANs (Ideas4Seasons etc)
+EANS_FILE = os.path.join(os.path.dirname(__file__), "eans.json")
+def load_eans():
+    if os.path.exists(EANS_FILE):
+        with open(EANS_FILE, "r") as f:
+            eans = json.load(f)
+            print(f"STARTUP: Loaded {len(eans)} EANs from eans.json")
+            return eans
+    print("STARTUP: No eans.json found")
+    return {}
+
+_eans = load_eans()
+
 # Load image URLs (Cloudinary URLs for Elvang etc)
 IMAGE_URLS_FILE = os.path.join(os.path.dirname(__file__), "image_urls.json")
 def load_image_urls():
@@ -813,7 +826,7 @@ async def sync_products(
                 "item_id": item.get("item_id"),
                 "name": item.get("name"),
                 "sku": sku,
-                "ean": item.get("ean") or item.get("upc") or "",
+                "ean": _eans.get(sku) or item.get("ean") or item.get("upc") or "",
                 "description": item.get("description", ""),
                 "rate": item.get("rate", 0),
                 "stock_on_hand": item.get("stock_on_hand", 0),
@@ -1059,8 +1072,8 @@ async def lookup_barcode(
         # Look for exact match on EAN, UPC, or SKU
         barcode_upper = barcode.upper()
         for item in all_items:
-            item_ean = item.get("ean") or item.get("upc") or ""
             item_sku = item.get("sku") or ""
+            item_ean = _eans.get(item_sku) or item.get("ean") or item.get("upc") or ""
             
             if (item_ean == barcode or item_sku.upper() == barcode_upper):
                 if item.get("status") == "inactive":
