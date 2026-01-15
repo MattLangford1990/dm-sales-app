@@ -72,6 +72,17 @@ app.add_middleware(
 )
 
 
+# Warm the product cache at startup so first barcode scan is fast
+@app.on_event("startup")
+async def warm_product_cache():
+    print("STARTUP: Warming product cache from Zoho...")
+    try:
+        items = await zoho_api.get_all_items_cached()
+        print(f"STARTUP: Product cache warmed with {len(items)} items")
+    except Exception as e:
+        print(f"STARTUP: Failed to warm cache (will retry on first request): {e}")
+
+
 # ============ Pydantic Models ============
 
 class LoginRequest(BaseModel):
