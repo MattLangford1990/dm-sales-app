@@ -5644,6 +5644,25 @@ function BarcodeHandler({ children }) {
 function MainApp() {
   const [activeSection, setActiveSection] = useState('home')
   const [successOrder, setSuccessOrder] = useState(null)
+  const { requestWakeLock, releaseWakeLock } = useWakeLock()
+  
+  // Keep screen awake while app is open (prevents barcode scanner triggering passcode)
+  useEffect(() => {
+    requestWakeLock()
+    
+    // Re-acquire wake lock when tab becomes visible (it gets released when hidden)
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        requestWakeLock()
+      }
+    }
+    document.addEventListener('visibilitychange', handleVisibilityChange)
+    
+    return () => {
+      releaseWakeLock()
+      document.removeEventListener('visibilitychange', handleVisibilityChange)
+    }
+  }, [requestWakeLock, releaseWakeLock])
   
   const handleOrderSubmitted = (order) => {
     setSuccessOrder(order)
