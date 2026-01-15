@@ -1575,7 +1575,6 @@ function ProductsTab() {
     e.stopPropagation()
     const packQty = product.pack_qty || 1
     addToCart(product, packQty)
-    addToast(`+${packQty} ${product.name}`, 'success')
   }
   
   // Remove one pack unit
