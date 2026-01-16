@@ -913,33 +913,91 @@ function LoadingSpinner() {
 
 // Smart image component - uses Cloudinary CDN directly
 function OfflineImage({ sku, alt, className, fallbackIcon = '📦', size = 'small', imageUrl = null }) {
-  // Use imageUrl if provided (e.g. Elvang), otherwise use CDN path
-  const [extension, setExtension] = useState('jpg')
+  // Use IndexedDB cache first, then CDN as fallback
+  const [imageSrc, setImageSrc] = useState(null)
+  const [loading, setLoading] = useState(true)
   const [failed, setFailed] = useState(false)
+  const [triedPng, setTriedPng] = useState(false)
   
-  // Compute image source - if imageUrl provided use it directly, otherwise build CDN URL
-  const imageSrc = imageUrl || (sku ? getImageUrl(sku, size, extension) : null)
-  
-  // Reset state when sku or imageUrl changes
+  // Load image: check IndexedDB cache first, then fall back to CDN
   useEffect(() => {
-    setExtension('jpg')
-    setFailed(false)
-  }, [sku, imageUrl])
+    // If imageUrl provided directly (e.g. Elvang), use it
+    if (imageUrl) {
+      setImageSrc(imageUrl)
+      setLoading(false)
+      return
+    }
+    
+    if (!sku) {
+      setLoading(false)
+      setFailed(true)
+      return
+    }
+    
+    let cancelled = false
+    
+    const loadImage = async () => {
+      setLoading(true)
+      setFailed(false)
+      setTriedPng(false)
+      
+      try {
+        // First, check IndexedDB cache
+        const cachedImage = await offlineStore.getImage(sku)
+        
+        if (cachedImage && !cancelled) {
+          // Use cached base64 image
+          setImageSrc(cachedImage)
+          setLoading(false)
+          return
+        }
+        
+        // No cache - use CDN URL (will be loaded by browser)
+        if (!cancelled) {
+          setImageSrc(getImageUrl(sku, size, 'jpg'))
+          setLoading(false)
+        }
+      } catch (err) {
+        // Fall back to CDN on any error
+        if (!cancelled) {
+          setImageSrc(getImageUrl(sku, size, 'jpg'))
+          setLoading(false)
+        }
+      }
+    }
+    
+    loadImage()
+    
+    return () => {
+      cancelled = true
+    }
+  }, [sku, imageUrl, size])
   
+  // Handle CDN image load errors (try png, then fail)
   const handleError = () => {
-    if (!imageUrl && extension === 'jpg') {
-      // Try png as fallback (My Flame products use .png)
-      setExtension('png')
+    // Only try fallbacks for CDN URLs (not cached base64 or custom imageUrl)
+    if (imageSrc && imageSrc.startsWith('http') && !imageUrl) {
+      if (!triedPng) {
+        // Try png as fallback (My Flame products use .png)
+        setTriedPng(true)
+        setImageSrc(getImageUrl(sku, size, 'png'))
+      } else {
+        // Both failed, show placeholder
+        setFailed(true)
+      }
+    } else if (imageSrc && imageSrc.startsWith('data:')) {
+      // Cached image failed to load (corrupted?), try CDN
+      setImageSrc(getImageUrl(sku, size, 'jpg'))
     } else {
-      // Both failed or using custom imageUrl, show placeholder
       setFailed(true)
     }
   }
   
-  if (!imageSrc || failed) {
+  // Show placeholder while loading or if failed
+  if (!sku || failed || loading) {
     return (
       <div className={`flex items-center justify-center bg-gray-100 ${className}`}>
-        <span className="text-4xl">{fallbackIcon}</span>
+        <span className="text-4xl">{loading && sku ? '' : fallbackIcon}</span>
       </div>
     )
   }
