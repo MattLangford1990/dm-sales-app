@@ -2586,19 +2586,52 @@ function CartTab({ onOrderSubmitted }) {
       const token = localStorage.getItem('token')
       const agent = JSON.parse(localStorage.getItem('agent') || '{}')
       
-      // Fetch cached images from IndexedDB - limit to first 30 items to keep request size manageable
-      const { getImage } = await import('./offlineStore.js')
-      const MAX_IMAGES = 30
-      
-      const itemsWithImages = await Promise.all(cart.map(async (item, index) => {
-        let imageData = null
-        // Only include images for first MAX_IMAGES items
-        if (index < MAX_IMAGES) {
-          try {
-            imageData = await getImage(item.sku)
-          } catch (e) {
-            console.log('No cached image for', item.sku)
+      // Helper function to compress image for PDF (keeps app images full quality)
+      const compressImageForPDF = async (base64Data) => {
+        return new Promise((resolve) => {
+          const img = new Image()
+          img.onload = () => {
+            // Resize to max 150px (plenty for 22mm in PDF)
+            const maxSize = 150
+            let width = img.width
+            let height = img.height
+            
+            if (width > height && width > maxSize) {
+              height = (height * maxSize) / width
+              width = maxSize
+            } else if (height > maxSize) {
+              width = (width * maxSize) / height
+              height = maxSize
+            }
+            
+            const canvas = document.createElement('canvas')
+            canvas.width = width
+            canvas.height = height
+            const ctx = canvas.getContext('2d')
+            ctx.drawImage(img, 0, 0, width, height)
+            
+            // Export as JPEG at 70% quality - good balance of size/quality
+            const compressed = canvas.toDataURL('image/jpeg', 0.7)
+            resolve(compressed)
           }
+          img.onerror = () => resolve(null)
+          img.src = base64Data
+        })
+      }
+      
+      // Fetch and compress cached images from IndexedDB
+      const { getImage } = await import('./offlineStore.js')
+      
+      const itemsWithImages = await Promise.all(cart.map(async (item) => {
+        let imageData = null
+        try {
+          const cachedImage = await getImage(item.sku)
+          if (cachedImage) {
+            // Compress for PDF - original stays in IndexedDB unchanged
+            imageData = await compressImageForPDF(cachedImage)
+          }
+        } catch (e) {
+          console.log('No cached image for', item.sku)
         }
         return {
           item_id: item.item_id,
@@ -2608,7 +2641,7 @@ function CartTab({ onOrderSubmitted }) {
           rate: item.rate,
           quantity: item.quantity,
           discount: item.discount || 0,
-          image_data: imageData  // base64 image or null
+          image_data: imageData
         }
       }))
       

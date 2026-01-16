@@ -1837,8 +1837,8 @@ async def export_quote_pdf(
         doc_prefix = "Order" if request.doc_type == "order" else "Quote"
         filename = f"{doc_prefix}_{customer_part}_{date_str}.pdf"
         
-        return StreamingResponse(
-            buffer,
+        return Response(
+            content=buffer.getvalue(),
             media_type="application/pdf",
             headers={
                 "Content-Disposition": f"attachment; filename={filename}",
