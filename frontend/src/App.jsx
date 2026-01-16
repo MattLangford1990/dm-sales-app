@@ -4383,7 +4383,7 @@ function AdminTab() {
   const [showNewAgent, setShowNewAgent] = useState(false)
   const [showUploadCatalogue, setShowUploadCatalogue] = useState(false)
   const [editingCatalogue, setEditingCatalogue] = useState(null)
-  const [imageSync, setImageSync] = useState({ running: false, result: null })
+  const [feedGeneration, setFeedGeneration] = useState({ running: false, result: null })
   const { addToast } = useToast()
   
   const loadData = async () => {
@@ -4507,25 +4507,20 @@ function AdminTab() {
     }
   }
   
-  const handleSyncImagesToCloudinary = async (dryRun = true) => {
-    setImageSync({ running: true, result: null })
+  const handleRegenerateFeed = async () => {
+    setFeedGeneration({ running: true, result: null })
     try {
-      console.log('Starting Cloudinary sync, dry_run:', dryRun)
-      const result = await apiRequest('/admin/sync-images-to-cloudinary', {
-        method: 'POST',
-        body: JSON.stringify({ dry_run: dryRun })
-      })
-      console.log('Sync result:', result)
-      setImageSync({ running: false, result })
-      if (dryRun) {
-        addToast(`Found ${result.missing_in_cloudinary} images to sync`, 'info')
+      const result = await apiRequest('/admin/generate-feed', { method: 'POST' })
+      setFeedGeneration({ running: false, result })
+      if (result.success) {
+        addToast(`Feed regenerated: ${result.total_products} products`, 'success')
       } else {
-        addToast(`Uploaded ${result.uploaded} images to Cloudinary`, 'success')
+        addToast('Feed generation failed', 'error')
       }
     } catch (err) {
-      console.error('Cloudinary sync error:', err)
-      setImageSync({ running: false, result: { error: err.message } })
-      addToast('Sync failed: ' + err.message, 'error')
+      console.error('Feed generation error:', err)
+      setFeedGeneration({ running: false, result: { error: err.message } })
+      addToast('Feed generation failed: ' + err.message, 'error')
     }
   }
   
@@ -4579,53 +4574,31 @@ function AdminTab() {
       {/* Catalogue Requests Section */}
       <CatalogueRequestsSection />
       
-      {/* Image Sync Section */}
+      {/* Product Feed Section */}
       <div className="bg-white rounded-xl p-4 border border-gray-200">
-        <h3 className="font-semibold mb-3">🖼️ Sync Zoho → Cloudinary</h3>
+        <h3 className="font-semibold mb-3">📦 Product Feed</h3>
         <p className="text-sm text-gray-600 mb-3">
-          Uploads missing product images from Zoho to Cloudinary CDN for faster loading.
+          Regenerate the static product feed used for offline sync. This fetches all products from Zoho and updates the feed cache.
         </p>
-        
-        <div className="flex gap-2">
-          <button
-            onClick={() => handleSyncImagesToCloudinary(true)}
-            disabled={imageSync.running}
-            className="flex-1 py-2 bg-blue-100 text-blue-700 rounded-lg font-medium hover:bg-blue-200 disabled:opacity-50 transition"
-          >
-            {imageSync.running ? 'Checking...' : 'Check Missing'}
-          </button>
-          <button
-            onClick={() => handleSyncImagesToCloudinary(false)}
-            disabled={imageSync.running}
-            className="flex-1 py-2 bg-green-600 text-white rounded-lg font-medium hover:bg-green-700 disabled:opacity-50 transition"
-          >
-            {imageSync.running ? 'Syncing...' : 'Sync Now'}
-          </button>
-        </div>
-        
-        {imageSync.result && (
-          <div className={`mt-3 p-3 rounded-lg text-sm ${imageSync.result.error ? 'bg-red-50' : 'bg-gray-50'}`}>
-            {imageSync.result.error ? (
+
+        <button
+          onClick={handleRegenerateFeed}
+          disabled={feedGeneration.running}
+          className="w-full py-2 bg-primary-600 text-white rounded-lg font-medium hover:bg-primary-700 disabled:opacity-50 transition"
+        >
+          {feedGeneration.running ? 'Generating...' : 'Regenerate Feed'}
+        </button>
+
+        {feedGeneration.result && (
+          <div className={`mt-3 p-3 rounded-lg text-sm ${feedGeneration.result.error ? 'bg-red-50' : 'bg-green-50'}`}>
+            {feedGeneration.result.error ? (
               <div className="text-red-600">
-                <strong>Error:</strong> {imageSync.result.error}
+                <strong>Error:</strong> {feedGeneration.result.error}
               </div>
             ) : (
-              <>
-                <div className="grid grid-cols-2 gap-2">
-                  <div>Total products: <span className="font-medium">{imageSync.result.total_products}</span></div>
-                  <div>In Cloudinary: <span className="font-medium text-green-600">{imageSync.result.already_in_cloudinary}</span></div>
-                  <div>Missing: <span className="font-medium text-orange-600">{imageSync.result.missing_in_cloudinary}</span></div>
-                  {!imageSync.result.dry_run && (
-                    <div>Uploaded: <span className="font-medium text-blue-600">{imageSync.result.uploaded}</span></div>
-                  )}
-                </div>
-                {imageSync.result.missing_skus?.length > 0 && (
-                  <div className="mt-2 text-xs text-gray-500">
-                    Sample missing: {imageSync.result.missing_skus.slice(0, 5).join(', ')}
-                    {imageSync.result.missing_skus.length > 5 && '...'}
-                  </div>
-                )}
-              </>
+              <div className="text-green-700">
+                <strong>Success!</strong> Feed updated with {feedGeneration.result.total_products} products.
+              </div>
             )}
           </div>
         )}
