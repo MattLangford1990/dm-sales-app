@@ -1671,44 +1671,9 @@ async def export_quote_pdf(
             elements.append(info_table)
             elements.append(Spacer(1, 6*mm))
         
-        # Fetch images from self-hosted CDN - IN BATCHES
+        # TEMPORARILY SKIP IMAGE FETCHING - just generate PDF without images to test
         image_cache = {}
-        if request.include_images:
-            cdn_base = "https://cdn.appdmbrands.com/products"
-            print(f"PDF IMAGES: Starting fetch for {len(request.items)} items")
-            
-            async def fetch_image(client, sku):
-                """Fetch a single image, trying jpg then png"""
-                cdn_sku = sku.replace('.', '_')
-                for ext in ['jpg', 'png']:
-                    img_url = f"{cdn_base}/{cdn_sku}.{ext}"
-                    try:
-                        response = await client.get(img_url)
-                        if response.status_code == 200:
-                            return (sku, response.content)
-                    except Exception as e:
-                        print(f"PDF IMAGES: Error fetching {sku}: {e}")
-                return (sku, None)
-            
-            try:
-                # Fetch in batches of 10 to be safe
-                BATCH_SIZE = 10
-                async with httpx.AsyncClient(timeout=5.0) as client:
-                    for i in range(0, len(request.items), BATCH_SIZE):
-                        batch = request.items[i:i + BATCH_SIZE]
-                        print(f"PDF IMAGES: Fetching batch {i//BATCH_SIZE + 1} ({len(batch)} items)")
-                        tasks = [fetch_image(client, item.sku) for item in batch if item.sku]
-                        results = await asyncio.gather(*tasks, return_exceptions=True)
-                        
-                        for result in results:
-                            if isinstance(result, tuple) and result[1] is not None:
-                                image_cache[result[0]] = result[1]
-                
-                print(f"PDF IMAGES: Successfully cached {len(image_cache)} of {len(request.items)} images")
-            except Exception as e:
-                print(f"PDF IMAGES: Error during image fetch: {e}")
-                import traceback
-                traceback.print_exc()
+        print(f"PDF: Generating PDF for {len(request.items)} items (images disabled for debugging)")
         
         # Build product rows - each product is a mini-table row
         # Column widths: Image (25mm), Details (flex), Qty (18mm), Price (22mm), Total (25mm)
