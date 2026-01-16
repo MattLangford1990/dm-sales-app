@@ -844,7 +844,8 @@ async def sync_products(
                 "brand": item.get("brand") or item.get("manufacturer") or "",
                 "unit": item.get("unit", "pcs"),
                 "pack_qty": _pack_quantities.get(sku),
-                "image_url": img_url
+                "image_url": img_url,
+                "created_time": item.get("created_time", "")
             })
         
         print(f"SYNC: Returning {len(products)} products for {agent.agent_name}")
@@ -1001,7 +1002,8 @@ async def get_products(
                 "brand": item.get("brand") or item.get("manufacturer") or item.get("cf_brand") or item.get("group_name", ""),
                 "unit": item.get("unit", "pcs"),
                 "status": item.get("status", "active"),
-                "pack_qty": _pack_quantities.get(sku)
+                "pack_qty": _pack_quantities.get(sku),
+                "created_time": item.get("created_time", "")
             })
         
         return {

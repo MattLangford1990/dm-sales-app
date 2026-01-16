@@ -95,7 +95,8 @@ def transform_product(item, pack_quantities, image_urls):
         "unit": item.get("unit", "pcs"),
         "pack_qty": pack_quantities.get(sku),
         "status": item.get("status", "active"),
-        "image_url": image_urls.get(sku) or None
+        "image_url": image_urls.get(sku) or None,
+        "created_time": item.get("created_time", "")
     }
 
 

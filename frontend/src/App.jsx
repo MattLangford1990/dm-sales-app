@@ -1465,7 +1465,34 @@ function ProductsTab() {
     const sourceProducts = freshProducts || productCache
     
     if (!selectedBrand || !sourceProducts.length) return []
-    
+
+    // Special filter: New products from last 90 days (across all agent's brands)
+    if (selectedBrand === '__NEW_90_DAYS__') {
+      const ninetyDaysAgo = new Date()
+      ninetyDaysAgo.setDate(ninetyDaysAgo.getDate() - 90)
+
+      let filtered = sourceProducts.filter(p => {
+        if (!p.created_time) return false
+        const createdDate = new Date(p.created_time)
+        return createdDate >= ninetyDaysAgo
+      })
+
+      // Sort by created_time descending (newest first)
+      filtered.sort((a, b) => new Date(b.created_time) - new Date(a.created_time))
+
+      if (search) {
+        const searchLower = search.toLowerCase()
+        filtered = filtered.filter(p =>
+          p.name?.toLowerCase().includes(searchLower) ||
+          p.sku?.toLowerCase().includes(searchLower) ||
+          p.ean?.toLowerCase().includes(searchLower) ||
+          p.brand?.toLowerCase().includes(searchLower)
+        )
+      }
+
+      return filtered
+    }
+
     // Normalize brand names for comparison - remove spaces, lowercase, extract key words
     const normalizeForMatch = (str) => {
       if (!str) return ''
@@ -1473,7 +1500,7 @@ function ProductsTab() {
         .replace(/\s+/g, '') // Remove all spaces
         .replace(/gmbh|ltd|inc|llc/gi, '') // Remove company suffixes
     }
-    
+
     // Also extract first meaningful word for partial matching
     const getKeyWord = (str) => {
       if (!str) return ''
@@ -1481,21 +1508,21 @@ function ProductsTab() {
       const words = str.toLowerCase().split(/\s+/).filter(w => w.length > 2)
       return words[0] || ''
     }
-    
+
     const selectedNorm = normalizeForMatch(selectedBrand)
     const selectedKey = getKeyWord(selectedBrand)
-    
+
     let filtered = sourceProducts.filter(p => {
     const productBrand = p.brand || ''
     if (!productBrand) return false // Skip products with no brand
-    
+
     const productNorm = normalizeForMatch(productBrand)
     const productKey = getKeyWord(productBrand)
-    
+
     // Match if normalized versions contain each other OR key words match
     return productNorm.includes(selectedNorm) ||
               selectedNorm.includes(productNorm) ||
-             (selectedKey && productKey && productKey.length > 2 && 
+             (selectedKey && productKey && productKey.length > 2 &&
               (productKey.includes(selectedKey) || selectedKey.includes(productKey)))
     })
     
@@ -1655,6 +1682,15 @@ function ProductsTab() {
         <div className="flex-1 overflow-y-auto p-4">
           {agent?.brands?.length > 0 ? (
             <div className="grid grid-cols-2 gap-4">
+              {/* New Products filter - shows items added in last 90 days across all brands */}
+              <button
+                onClick={() => setSelectedBrand('__NEW_90_DAYS__')}
+                className="bg-gradient-to-br from-green-50 to-emerald-100 border-2 border-green-300 rounded-xl p-6 text-center hover:border-green-500 hover:from-green-100 hover:to-emerald-200 transition active:scale-95"
+              >
+                <span className="text-2xl mb-1 block">✨</span>
+                <span className="font-semibold text-green-700">New Products</span>
+                <span className="block text-xs text-green-600 mt-1">Last 90 days</span>
+              </button>
               {agent.brands.filter(b => !['Elvang', 'Elvang Denmark', 'GEFU'].includes(b)).map(brand => (
                 <button
                   key={brand}
@@ -1687,7 +1723,9 @@ function ProductsTab() {
           >
             ←
           </button>
-          <span className="font-semibold text-gray-800">{selectedBrand}</span>
+          <span className="font-semibold text-gray-800">
+            {selectedBrand === '__NEW_90_DAYS__' ? '✨ New Products (90 days)' : selectedBrand}
+          </span>
           {germanStock && (
             <span className="text-xs bg-blue-100 text-blue-700 px-2 py-1 rounded-full">
               🇩🇪 Stock
