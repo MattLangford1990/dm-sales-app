@@ -138,20 +138,19 @@ export async function syncCustomers(onProgress) {
   }
 }
 
-// Cloudinary CDN - low res for offline storage
-const CLOUDINARY_BASE = 'https://res.cloudinary.com/dcfbgveei/image/upload'
-const CLOUDINARY_TRANSFORM = 'w_300,q_60,f_auto' // Same as 'small' in App.jsx
+// CDN for product images
+const CDN_BASE = 'https://cdn.appdmbrands.com'
 
-// Convert SKU to Cloudinary format (dots -> underscores for My Flame products)
-const skuToCloudinaryId = (sku) => {
+// Convert SKU to CDN format (dots -> underscores for My Flame products)
+const skuToCdnId = (sku) => {
   if (!sku) return null
   return sku.replace(/\./g, '_')
 }
 
 // Pre-cache product images for offline use
-// Downloads from Cloudinary CDN (fast, no rate limits) and saves to IndexedDB
+// Downloads from CDN and saves to IndexedDB
 export async function syncImages(products, onProgress) {
-  console.log('SYNC: Starting image sync from Cloudinary...')
+  console.log('SYNC: Starting image sync from CDN...')
   console.log('SYNC: Products to sync:', products.length)
   
   let cached = 0
@@ -159,7 +158,7 @@ export async function syncImages(products, onProgress) {
   let failed = 0
   let noimage = 0
   const total = products.length
-  const BATCH_SIZE = 10 // Cloudinary can handle more concurrent requests than our API
+  const BATCH_SIZE = 10 // CDN can handle concurrent requests
   
   for (let i = 0; i < products.length; i += BATCH_SIZE) {
     const batch = products.slice(i, i + BATCH_SIZE)
@@ -186,34 +185,33 @@ export async function syncImages(products, onProgress) {
             return { status: 'skipped', sku }
           }
           
-          // Download from Cloudinary CDN
-          const cloudinarySku = skuToCloudinaryId(sku)
-          const url = `${CLOUDINARY_BASE}/${CLOUDINARY_TRANSFORM}/products/${cloudinarySku}.jpg`
-          
-          const response = await fetch(url)
-          
-          if (response.ok) {
-            const blob = await response.blob()
-            console.log('SYNC: Blob for', sku, '- type:', blob.type, 'size:', blob.size)
-            
-            // Only save if it has content (Cloudinary returns proper content-type)
-            if (blob.size > 500) {
-              await offlineStore.saveImage(sku, blob)
-              
-              // Verify it was saved
-              const verify = await offlineStore.getImage(sku)
-              console.log('SYNC: Verify save for', sku, '- found:', !!verify)
-              
-              return { status: 'cached', sku }
-            } else {
-              console.log('SYNC: Blob too small for', sku)
-              return { status: 'noimage', sku }
+          // Download from CDN - try jpg first, then png
+          const cdnSku = skuToCdnId(sku)
+
+          for (const ext of ['jpg', 'png']) {
+            const url = `${CDN_BASE}/products/${cdnSku}.${ext}`
+            const response = await fetch(url)
+
+            if (response.ok) {
+              const blob = await response.blob()
+              console.log('SYNC: Blob for', sku, `(${ext}) - type:`, blob.type, 'size:', blob.size)
+
+              // Only save if it has content
+              if (blob.size > 500) {
+                await offlineStore.saveImage(sku, blob)
+
+                // Verify it was saved
+                const verify = await offlineStore.getImage(sku)
+                console.log('SYNC: Verify save for', sku, '- found:', !!verify)
+
+                return { status: 'cached', sku }
+              }
             }
-          } else {
-            // 404 = no image for this product
-            console.log('SYNC: No image (HTTP', response.status, ') for', sku)
-            return { status: 'noimage', sku }
           }
+
+          // Neither jpg nor png found
+          console.log('SYNC: No image found for', sku)
+          return { status: 'noimage', sku }
         } catch (err) {
           console.error('SYNC: Error for product', sku, err)
           return { status: 'failed', sku, error: err.message }

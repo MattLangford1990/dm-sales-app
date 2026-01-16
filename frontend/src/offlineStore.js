@@ -6,8 +6,20 @@ const DB_VERSION = 2  // Version 2 adds auth store
 let db = null
 
 export async function initDB() {
-  if (db) return db
-  
+  // Check if existing connection is still valid
+  if (db) {
+    try {
+      // Test if connection is still alive by checking objectStoreNames
+      const storeNames = db.objectStoreNames
+      if (storeNames && storeNames.contains('images')) {
+        return db
+      }
+    } catch (err) {
+      console.warn('initDB: Cached connection is stale, reconnecting...', err)
+      db = null
+    }
+  }
+
   return new Promise((resolve, reject) => {
     const request = indexedDB.open(DB_NAME, DB_VERSION)
     
@@ -316,19 +328,27 @@ export async function saveImage(itemId, imageBlob) {
   
   // Now open the transaction and store synchronously
   const database = await initDB()
+  console.log('offlineStore.saveImage: Got database, stores:', Array.from(database.objectStoreNames))
+
   const tx = database.transaction('images', 'readwrite')
   const store = tx.objectStore('images')
-  
-  store.put({ item_id: itemId, data: base64 })
-  
+
+  const putRequest = store.put({ item_id: itemId, data: base64 })
+  putRequest.onsuccess = () => console.log('offlineStore.saveImage: put() succeeded for', itemId)
+  putRequest.onerror = () => console.error('offlineStore.saveImage: put() failed for', itemId, putRequest.error)
+
   return new Promise((resolve, reject) => {
     tx.oncomplete = () => {
-      console.log('offlineStore.saveImage: Successfully saved', itemId)
+      console.log('offlineStore.saveImage: Transaction complete for', itemId)
       resolve()
     }
     tx.onerror = () => {
-      console.error('offlineStore.saveImage: Failed to save', itemId, tx.error)
+      console.error('offlineStore.saveImage: Transaction error for', itemId, tx.error)
       reject(tx.error)
+    }
+    tx.onabort = () => {
+      console.error('offlineStore.saveImage: Transaction ABORTED for', itemId, tx.error)
+      reject(tx.error || new Error('Transaction aborted'))
     }
   })
 }
@@ -353,8 +373,14 @@ export async function getImage(itemId) {
 
 // Debug function to count images in IndexedDB
 export async function getImageCount() {
+  console.log('getImageCount: Starting count...')
   try {
-    const store = await getStore('images')
+    const database = await initDB()
+    console.log('getImageCount: Got database, stores:', Array.from(database.objectStoreNames))
+
+    const tx = database.transaction('images', 'readonly')
+    const store = tx.objectStore('images')
+
     return new Promise((resolve, reject) => {
       const request = store.count()
       request.onsuccess = () => {
