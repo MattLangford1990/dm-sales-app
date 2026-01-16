@@ -1614,8 +1614,9 @@ async def export_quote_pdf(
     agent: TokenData = Depends(get_current_agent)
 ):
     """Generate a PDF quote from cart items with product images"""
+    print(f"PDF ENDPOINT: Starting - {len(request.items)} items, include_images={request.include_images}")
+    
     try:
-        import httpx
         from reportlab.lib import colors
         from reportlab.lib.pagesizes import A4
         from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
@@ -1827,6 +1828,8 @@ async def export_quote_pdf(
         # Build PDF
         doc.build(elements)
         buffer.seek(0)
+        
+        print(f"PDF ENDPOINT: Success - buffer size {buffer.getbuffer().nbytes} bytes")
         
         # Generate filename
         date_str = datetime.now().strftime("%Y%m%d")

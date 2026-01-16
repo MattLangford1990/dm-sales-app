@@ -2586,14 +2586,19 @@ function CartTab({ onOrderSubmitted }) {
       const token = localStorage.getItem('token')
       const agent = JSON.parse(localStorage.getItem('agent') || '{}')
       
-      // Fetch cached images from IndexedDB for each cart item
+      // Fetch cached images from IndexedDB - limit to first 30 items to keep request size manageable
       const { getImage } = await import('./offlineStore.js')
-      const itemsWithImages = await Promise.all(cart.map(async (item) => {
+      const MAX_IMAGES = 30
+      
+      const itemsWithImages = await Promise.all(cart.map(async (item, index) => {
         let imageData = null
-        try {
-          imageData = await getImage(item.sku)
-        } catch (e) {
-          console.log('No cached image for', item.sku)
+        // Only include images for first MAX_IMAGES items
+        if (index < MAX_IMAGES) {
+          try {
+            imageData = await getImage(item.sku)
+          } catch (e) {
+            console.log('No cached image for', item.sku)
+          }
         }
         return {
           item_id: item.item_id,
@@ -2606,6 +2611,8 @@ function CartTab({ onOrderSubmitted }) {
           image_data: imageData  // base64 image or null
         }
       }))
+      
+      console.log(`PDF: Sending ${cart.length} items, ${itemsWithImages.filter(i => i.image_data).length} with images`)
       
       const response = await fetch(`${API_BASE}/export/quote-pdf`, {
         method: 'POST',
