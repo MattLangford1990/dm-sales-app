@@ -12,6 +12,7 @@ import os
 import io
 import uuid
 import asyncio
+import base64
 
 import json
 from config import get_settings
@@ -1598,6 +1599,7 @@ class QuotePDFItem(BaseModel):
     rate: float
     quantity: int
     discount: float = 0
+    image_data: Optional[str] = None  # base64 image from client
 
 class QuotePDFRequest(BaseModel):
     items: List[QuotePDFItem]
@@ -1671,9 +1673,22 @@ async def export_quote_pdf(
             elements.append(info_table)
             elements.append(Spacer(1, 6*mm))
         
-        # TEMPORARILY SKIP IMAGE FETCHING - just generate PDF without images to test
+        # Use images sent from client (already cached in IndexedDB)
         image_cache = {}
-        print(f"PDF: Generating PDF for {len(request.items)} items (images disabled for debugging)")
+        if request.include_images:
+            print(f"PDF: Processing {len(request.items)} items with client-side images")
+            for item in request.items:
+                if item.image_data:
+                    try:
+                        # image_data is base64 data URL like "data:image/png;base64,xxxxx"
+                        if ',' in item.image_data:
+                            base64_data = item.image_data.split(',')[1]
+                        else:
+                            base64_data = item.image_data
+                        image_cache[item.sku] = base64.b64decode(base64_data)
+                    except Exception as e:
+                        print(f"PDF: Error decoding image for {item.sku}: {e}")
+            print(f"PDF: Got {len(image_cache)} images from client")
         
         # Build product rows - each product is a mini-table row
         # Column widths: Image (25mm), Details (flex), Qty (18mm), Price (22mm), Total (25mm)

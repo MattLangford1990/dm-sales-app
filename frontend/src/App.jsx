@@ -2586,6 +2586,27 @@ function CartTab({ onOrderSubmitted }) {
       const token = localStorage.getItem('token')
       const agent = JSON.parse(localStorage.getItem('agent') || '{}')
       
+      // Fetch cached images from IndexedDB for each cart item
+      const { getImage } = await import('./offlineStore.js')
+      const itemsWithImages = await Promise.all(cart.map(async (item) => {
+        let imageData = null
+        try {
+          imageData = await getImage(item.sku)
+        } catch (e) {
+          console.log('No cached image for', item.sku)
+        }
+        return {
+          item_id: item.item_id,
+          name: item.name,
+          sku: item.sku,
+          ean: item.ean || '',
+          rate: item.rate,
+          quantity: item.quantity,
+          discount: item.discount || 0,
+          image_data: imageData  // base64 image or null
+        }
+      }))
+      
       const response = await fetch(`${API_BASE}/export/quote-pdf`, {
         method: 'POST',
         headers: {
@@ -2593,15 +2614,7 @@ function CartTab({ onOrderSubmitted }) {
           'Authorization': `Bearer ${token}`
         },
         body: JSON.stringify({
-          items: cart.map(item => ({
-            item_id: item.item_id,
-            name: item.name,
-            sku: item.sku,
-            ean: item.ean || '',
-            rate: item.rate,
-            quantity: item.quantity,
-            discount: item.discount || 0
-          })),
+          items: itemsWithImages,
           customer_name: customer?.company_name || 'Customer',
           customer_email: customer?.email || null,
           agent_name: agent?.name || 'Sales Agent',
