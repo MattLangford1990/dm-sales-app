@@ -111,28 +111,86 @@ const getImageUrl = (sku, size = 'medium', extension = 'jpg') => {
   return `${CDN_BASE}/products/${cdnSku}.${extension}`
 }
 
-// ProductImage component that tries jpg first, then png as fallback
+// ProductImage component that uses IndexedDB cache first, then CDN as fallback
 const ProductImage = ({ sku, alt, className, style, onClick }) => {
-  const [extension, setExtension] = useState('jpg')
+  const [imageSrc, setImageSrc] = useState(null)
+  const [loading, setLoading] = useState(true)
   const [failed, setFailed] = useState(false)
+  const [triedPng, setTriedPng] = useState(false)
   
-  const handleError = () => {
-    if (extension === 'jpg') {
-      // Try png as fallback
-      setExtension('png')
-    } else {
-      // Both failed, show placeholder
+  // Load image: check IndexedDB cache first, then fall back to CDN
+  useEffect(() => {
+    if (!sku) {
+      setLoading(false)
       setFailed(true)
+      return
+    }
+    
+    let cancelled = false
+    
+    const loadImage = async () => {
+      setLoading(true)
+      setFailed(false)
+      setTriedPng(false)
+      
+      try {
+        // First, check IndexedDB cache
+        const cachedImage = await offlineStore.getImage(sku)
+        
+        if (cachedImage && !cancelled) {
+          // Use cached base64 image
+          console.log('ProductImage: Using cached image for', sku)
+          setImageSrc(cachedImage)
+          setLoading(false)
+          return
+        }
+        
+        // No cache - use CDN URL (will be loaded by browser)
+        if (!cancelled) {
+          console.log('ProductImage: No cache, using CDN for', sku)
+          setImageSrc(getImageUrl(sku, 'medium', 'jpg'))
+          setLoading(false)
+        }
+      } catch (err) {
+        console.warn('ProductImage: Error loading cached image for', sku, err)
+        // Fall back to CDN on any error
+        if (!cancelled) {
+          setImageSrc(getImageUrl(sku, 'medium', 'jpg'))
+          setLoading(false)
+        }
+      }
+    }
+    
+    loadImage()
+    
+    return () => {
+      cancelled = true
+    }
+  }, [sku])
+  
+  // Handle CDN image load errors (try png, then fail)
+  const handleError = () => {
+    // Only try fallbacks for CDN URLs (not cached base64)
+    if (imageSrc && imageSrc.startsWith('http')) {
+      if (!triedPng) {
+        // Try png as fallback
+        console.log('ProductImage: jpg failed, trying png for', sku)
+        setTriedPng(true)
+        setImageSrc(getImageUrl(sku, 'medium', 'png'))
+      } else {
+        // Both failed, show placeholder
+        console.log('ProductImage: Both jpg and png failed for', sku)
+        setFailed(true)
+      }
+    } else {
+      // Cached image failed to load (corrupted?), try CDN
+      console.log('ProductImage: Cached image failed, trying CDN for', sku)
+      setImageSrc(getImageUrl(sku, 'medium', 'jpg'))
     }
   }
   
-  // Reset state when SKU changes
-  useEffect(() => {
-    setExtension('jpg')
-    setFailed(false)
-  }, [sku])
-  
-  if (!sku || failed) {
+  // Show placeholder while loading or if failed
+  if (!sku || failed || loading) {
     return (
       <div 
         className={className} 
@@ -146,14 +204,14 @@ const ProductImage = ({ sku, alt, className, style, onClick }) => {
         }}
         onClick={onClick}
       >
-        <span style={{ fontSize: '0.75rem' }}>No image</span>
+        <span style={{ fontSize: '0.75rem' }}>{loading ? '...' : 'No image'}</span>
       </div>
     )
   }
   
   return (
     <img
-      src={getImageUrl(sku, 'medium', extension)}
+      src={imageSrc}
       alt={alt || sku}
       className={className}
       style={style}

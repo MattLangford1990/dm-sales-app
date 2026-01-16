@@ -1070,6 +1070,37 @@ async def get_product_image(item_id: str):
         raise HTTPException(status_code=404, detail="Image not found")
 
 
+@app.get("/api/cdn/image/{sku}")
+async def get_cdn_image(sku: str):
+    """Proxy images from CDN to avoid CORS issues for offline caching"""
+    import httpx
+
+    # Convert SKU to CDN format (dots -> underscores)
+    cdn_sku = sku.replace('.', '_')
+    cdn_base = "https://cdn.appdmbrands.com/products"
+
+    async with httpx.AsyncClient() as client:
+        # Try jpg first, then png
+        for ext in ['jpg', 'png']:
+            url = f"{cdn_base}/{cdn_sku}.{ext}"
+            try:
+                response = await client.get(url, timeout=10.0)
+                if response.status_code == 200:
+                    content_type = "image/jpeg" if ext == "jpg" else "image/png"
+                    return Response(
+                        content=response.content,
+                        media_type=content_type,
+                        headers={
+                            "Cache-Control": "public, max-age=86400",
+                            "Access-Control-Allow-Origin": "*"
+                        }
+                    )
+            except Exception:
+                continue
+
+    raise HTTPException(status_code=404, detail="Image not found")
+
+
 @app.get("/api/barcode/{barcode}")
 async def lookup_barcode(
     barcode: str,

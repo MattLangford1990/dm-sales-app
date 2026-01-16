@@ -138,19 +138,15 @@ export async function syncCustomers(onProgress) {
   }
 }
 
-// CDN for product images
-const CDN_BASE = 'https://cdn.appdmbrands.com'
-
-// Convert SKU to CDN format (dots -> underscores for My Flame products)
-const skuToCdnId = (sku) => {
-  if (!sku) return null
-  return sku.replace(/\./g, '_')
+// API base for image proxy (handles CORS)
+const getApiBase = () => {
+  return window.Capacitor?.isNativePlatform?.() ? 'https://appdmbrands.com/api' : '/api'
 }
 
 // Pre-cache product images for offline use
-// Downloads from CDN and saves to IndexedDB
+// Downloads via API proxy and saves to IndexedDB
 export async function syncImages(products, onProgress) {
-  console.log('SYNC: Starting image sync from CDN...')
+  console.log('SYNC: Starting image sync...')
   console.log('SYNC: Products to sync:', products.length)
   
   let cached = 0
@@ -158,7 +154,7 @@ export async function syncImages(products, onProgress) {
   let failed = 0
   let noimage = 0
   const total = products.length
-  const BATCH_SIZE = 10 // CDN can handle concurrent requests
+  const BATCH_SIZE = 5 // Reasonable batch size for API proxy
   
   for (let i = 0; i < products.length; i += BATCH_SIZE) {
     const batch = products.slice(i, i + BATCH_SIZE)
@@ -185,31 +181,28 @@ export async function syncImages(products, onProgress) {
             return { status: 'skipped', sku }
           }
           
-          // Download from CDN - try jpg first, then png
-          const cdnSku = skuToCdnId(sku)
+          // Download via API proxy (handles CORS and jpg/png fallback)
+          const apiBase = getApiBase()
+          const url = `${apiBase}/cdn/image/${sku}`
+          const response = await fetch(url)
 
-          for (const ext of ['jpg', 'png']) {
-            const url = `${CDN_BASE}/products/${cdnSku}.${ext}`
-            const response = await fetch(url)
+          if (response.ok) {
+            const blob = await response.blob()
+            console.log('SYNC: Blob for', sku, '- type:', blob.type, 'size:', blob.size)
 
-            if (response.ok) {
-              const blob = await response.blob()
-              console.log('SYNC: Blob for', sku, `(${ext}) - type:`, blob.type, 'size:', blob.size)
+            // Only save if it has content
+            if (blob.size > 500) {
+              await offlineStore.saveImage(sku, blob)
 
-              // Only save if it has content
-              if (blob.size > 500) {
-                await offlineStore.saveImage(sku, blob)
+              // Verify it was saved
+              const verify = await offlineStore.getImage(sku)
+              console.log('SYNC: Verify save for', sku, '- found:', !!verify)
 
-                // Verify it was saved
-                const verify = await offlineStore.getImage(sku)
-                console.log('SYNC: Verify save for', sku, '- found:', !!verify)
-
-                return { status: 'cached', sku }
-              }
+              return { status: 'cached', sku }
             }
           }
 
-          // Neither jpg nor png found
+          // No image found
           console.log('SYNC: No image found for', sku)
           return { status: 'noimage', sku }
         } catch (err) {
