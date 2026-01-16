@@ -1,7 +1,7 @@
 // IndexedDB wrapper for offline data storage
 
 const DB_NAME = 'dm-sales-offline'
-const DB_VERSION = 2  // Version 2 adds auth store
+const DB_VERSION = 3  // Version 3 changes images keyPath to sku
 
 let db = null
 
@@ -47,9 +47,16 @@ export async function initDB() {
         customerStore.createIndex('company_name', 'company_name', { unique: false })
       }
       
-      // Images store - keyed by item_id, stores base64
+      // Images store - keyed by SKU for CDN compatibility
       if (!database.objectStoreNames.contains('images')) {
-        database.createObjectStore('images', { keyPath: 'item_id' })
+        database.createObjectStore('images', { keyPath: 'sku' })
+      }
+      
+      // Handle upgrade from version 2: recreate images store with new keyPath
+      if (event.oldVersion < 3 && database.objectStoreNames.contains('images')) {
+        // Delete old images store (keyed by item_id) and recreate with sku
+        database.deleteObjectStore('images')
+        database.createObjectStore('images', { keyPath: 'sku' })
       }
       
       // Offline orders queue - orders created while offline
@@ -312,8 +319,8 @@ export async function clearCustomers() {
 
 // ============ Images ============
 
-export async function saveImage(itemId, imageBlob) {
-  console.log('offlineStore.saveImage: Saving image for', itemId, 'blob size:', imageBlob.size)
+export async function saveImage(sku, imageBlob) {
+  console.log('offlineStore.saveImage: Saving image for', sku, 'blob size:', imageBlob.size)
   
   // IMPORTANT: Convert blob to base64 BEFORE starting the transaction
   // IndexedDB transactions auto-commit when the event loop goes idle,
@@ -333,39 +340,39 @@ export async function saveImage(itemId, imageBlob) {
   const tx = database.transaction('images', 'readwrite')
   const store = tx.objectStore('images')
 
-  const putRequest = store.put({ item_id: itemId, data: base64 })
-  putRequest.onsuccess = () => console.log('offlineStore.saveImage: put() succeeded for', itemId)
-  putRequest.onerror = () => console.error('offlineStore.saveImage: put() failed for', itemId, putRequest.error)
+  const putRequest = store.put({ sku: sku, data: base64 })
+  putRequest.onsuccess = () => console.log('offlineStore.saveImage: put() succeeded for', sku)
+  putRequest.onerror = () => console.error('offlineStore.saveImage: put() failed for', sku, putRequest.error)
 
   return new Promise((resolve, reject) => {
     tx.oncomplete = () => {
-      console.log('offlineStore.saveImage: Transaction complete for', itemId)
+      console.log('offlineStore.saveImage: Transaction complete for', sku)
       resolve()
     }
     tx.onerror = () => {
-      console.error('offlineStore.saveImage: Transaction error for', itemId, tx.error)
+      console.error('offlineStore.saveImage: Transaction error for', sku, tx.error)
       reject(tx.error)
     }
     tx.onabort = () => {
-      console.error('offlineStore.saveImage: Transaction ABORTED for', itemId, tx.error)
+      console.error('offlineStore.saveImage: Transaction ABORTED for', sku, tx.error)
       reject(tx.error || new Error('Transaction aborted'))
     }
   })
 }
 
-export async function getImage(itemId) {
-  console.log('offlineStore.getImage: Getting image for', itemId)
+export async function getImage(sku) {
+  console.log('offlineStore.getImage: Getting image for', sku)
   const store = await getStore('images')
   
   return new Promise((resolve, reject) => {
-    const request = store.get(itemId)
+    const request = store.get(sku)
     request.onsuccess = () => {
       const result = request.result
-      console.log('offlineStore.getImage: Result for', itemId, '- found:', !!result, result ? `data length: ${result.data?.length}` : '')
+      console.log('offlineStore.getImage: Result for', sku, '- found:', !!result, result ? `data length: ${result.data?.length}` : '')
       resolve(result?.data)
     }
     request.onerror = () => {
-      console.error('offlineStore.getImage: Error for', itemId, request.error)
+      console.error('offlineStore.getImage: Error for', sku, request.error)
       reject(request.error)
     }
   })
