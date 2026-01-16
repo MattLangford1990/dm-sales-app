@@ -947,6 +947,7 @@ function OfflineImage({ sku, alt, className, fallbackIcon = '📦', size = 'smal
         
         if (cachedImage && !cancelled) {
           // Use cached base64 image
+          console.log('📦 CACHE HIT:', sku)
           setImageSrc(cachedImage)
           setLoading(false)
           return
@@ -954,6 +955,7 @@ function OfflineImage({ sku, alt, className, fallbackIcon = '📦', size = 'smal
         
         // No cache - use CDN URL (will be loaded by browser)
         if (!cancelled) {
+          console.log('🌐 CDN LOAD:', sku)
           setImageSrc(getImageUrl(sku, size, 'jpg'))
           setLoading(false)
         }
