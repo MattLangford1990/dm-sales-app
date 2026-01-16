@@ -2630,31 +2630,35 @@ function CartTab({ onOrderSubmitted }) {
       const blob = await response.blob()
       const filename = response.headers.get('X-Filename') || `${docType}_${new Date().toISOString().split('T')[0]}.pdf`
       
-      // Always download the PDF directly - most reliable across all browsers
-      // On iOS Safari, this will open the PDF in a new tab where user can tap share icon
+      // Create blob URL
       const url = window.URL.createObjectURL(blob)
       
-      // Check if iOS Safari (download attribute doesn't work well)
-      const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent)
+      // Use the same approach for all platforms - create a link and click it
+      // This works better on iOS than window.open() after async operations
+      const a = document.createElement('a')
+      a.href = url
+      a.download = filename
+      a.style.display = 'none'
+      document.body.appendChild(a)
+      a.click()
       
+      // For iOS, also try to open in new tab as fallback
+      const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent)
       if (isIOS) {
-        // On iOS, open PDF in new tab - user can then use Safari's share button
-        // which has Mail, Save to Files, AirDrop etc.
-        window.open(url, '_blank')
-        addToast('PDF opened - tap Share icon to email or save', 'success')
+        // Small delay then try opening - iOS may show "Downloads" popup
+        setTimeout(() => {
+          window.location.href = url
+        }, 100)
+        addToast('PDF ready - check Downloads or tap the link', 'success')
       } else {
-        // On other browsers, trigger download
-        const a = document.createElement('a')
-        a.href = url
-        a.download = filename
-        document.body.appendChild(a)
-        a.click()
-        a.remove()
         addToast('PDF downloaded!', 'success')
       }
       
-      // Clean up after a delay (give iOS time to load)
-      setTimeout(() => window.URL.revokeObjectURL(url), 10000)
+      // Cleanup
+      setTimeout(() => {
+        document.body.removeChild(a)
+        window.URL.revokeObjectURL(url)
+      }, 10000)
       
     } catch (err) {
       console.error('PDF generation error:', err)
