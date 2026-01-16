@@ -143,21 +143,72 @@ const getApiBase = () => {
   return window.Capacitor?.isNativePlatform?.() ? 'https://appdmbrands.com/api' : '/api'
 }
 
+// Brand variations for matching (same as backend agents.py)
+const BRAND_VARIATIONS = {
+  'Räder': ['Räder', 'Rader', 'raeder', 'Räder Design'],
+  'Remember': ['Remember', 'Remember Products'],
+  'My Flame': ['My Flame', 'MyFlame', 'My Flame Lifestyle'],
+  'Relaxound': ['Relaxound'],
+  'PPD': ['PPD', 'Paper Products Design', 'paperproducts design', 'ppd PAPERPRODUCTS DESIGN'],
+  'Ideas4Seasons': ['Ideas4Seasons', 'Ideas 4 Seasons', 'i4s', 'Ideas4seasons'],
+  'Elvang': ['Elvang', 'Elvang Denmark'],
+}
+
+// Check if a product matches any of the agent's brands
+function productMatchesBrands(product, agentBrands) {
+  if (!agentBrands || agentBrands.length === 0) return true // No filter if no brands
+  
+  const productBrand = (product.brand || '').toLowerCase()
+  
+  for (const agentBrand of agentBrands) {
+    // Get all variations for this brand
+    const variations = BRAND_VARIATIONS[agentBrand] || [agentBrand]
+    
+    for (const variation of variations) {
+      if (productBrand.includes(variation.toLowerCase())) {
+        return true
+      }
+    }
+  }
+  
+  return false
+}
+
 // Pre-cache product images for offline use
 // Downloads via API proxy and saves to IndexedDB
+// Only downloads images for the agent's assigned brands
 export async function syncImages(products, onProgress) {
   console.log('SYNC: Starting image sync...')
-  console.log('SYNC: Products to sync:', products.length)
+  
+  // Get agent's brands from localStorage
+  let agentBrands = []
+  try {
+    const agentData = localStorage.getItem('agent')
+    if (agentData) {
+      const agent = JSON.parse(agentData)
+      agentBrands = agent.brands || []
+    }
+  } catch (err) {
+    console.warn('SYNC: Could not get agent brands, will sync all images')
+  }
+  
+  // Filter products to only agent's brands
+  const filteredProducts = agentBrands.length > 0
+    ? products.filter(p => productMatchesBrands(p, agentBrands))
+    : products
+  
+  console.log(`SYNC: Agent brands: ${agentBrands.join(', ') || 'ALL'}`)
+  console.log(`SYNC: Products to sync: ${filteredProducts.length} (filtered from ${products.length})`)
   
   let cached = 0
   let skipped = 0
   let failed = 0
   let noimage = 0
-  const total = products.length
+  const total = filteredProducts.length
   const BATCH_SIZE = 5 // Reasonable batch size for API proxy
   
-  for (let i = 0; i < products.length; i += BATCH_SIZE) {
-    const batch = products.slice(i, i + BATCH_SIZE)
+  for (let i = 0; i < filteredProducts.length; i += BATCH_SIZE) {
+    const batch = filteredProducts.slice(i, i + BATCH_SIZE)
     
     onProgress?.({ 
       stage: 'images', 
