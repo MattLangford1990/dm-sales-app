@@ -11,6 +11,7 @@ import re
 import os
 import io
 import uuid
+import asyncio
 
 import json
 from config import get_settings
@@ -1670,17 +1671,11 @@ async def export_quote_pdf(
             elements.append(info_table)
             elements.append(Spacer(1, 6*mm))
         
-        # Fetch images from self-hosted CDN - IN BATCHES for memory safety
+        # Fetch images from self-hosted CDN - IN BATCHES
         image_cache = {}
         if request.include_images:
-            import asyncio
             cdn_base = "https://cdn.appdmbrands.com/products"
-            
-            # Limit images for very large orders to avoid memory issues
-            MAX_IMAGES = 100
-            items_to_fetch = request.items[:MAX_IMAGES] if len(request.items) > MAX_IMAGES else request.items
-            
-            print(f"PDF IMAGES: Fetching images for {len(items_to_fetch)} items (of {len(request.items)} total) from {cdn_base}")
+            print(f"PDF IMAGES: Starting fetch for {len(request.items)} items")
             
             async def fetch_image(client, sku):
                 """Fetch a single image, trying jpg then png"""
@@ -1691,23 +1686,29 @@ async def export_quote_pdf(
                         response = await client.get(img_url)
                         if response.status_code == 200:
                             return (sku, response.content)
-                    except:
-                        pass
+                    except Exception as e:
+                        print(f"PDF IMAGES: Error fetching {sku}: {e}")
                 return (sku, None)
             
-            # Fetch in batches of 20 to avoid overwhelming memory/connections
-            BATCH_SIZE = 20
-            async with httpx.AsyncClient(timeout=5.0) as client:
-                for i in range(0, len(items_to_fetch), BATCH_SIZE):
-                    batch = items_to_fetch[i:i + BATCH_SIZE]
-                    tasks = [fetch_image(client, item.sku) for item in batch if item.sku]
-                    results = await asyncio.gather(*tasks, return_exceptions=True)
-                    
-                    for result in results:
-                        if isinstance(result, tuple) and result[1] is not None:
-                            image_cache[result[0]] = result[1]
-            
-            print(f"PDF IMAGES: Cached {len(image_cache)} of {len(items_to_fetch)} images")
+            try:
+                # Fetch in batches of 10 to be safe
+                BATCH_SIZE = 10
+                async with httpx.AsyncClient(timeout=5.0) as client:
+                    for i in range(0, len(request.items), BATCH_SIZE):
+                        batch = request.items[i:i + BATCH_SIZE]
+                        print(f"PDF IMAGES: Fetching batch {i//BATCH_SIZE + 1} ({len(batch)} items)")
+                        tasks = [fetch_image(client, item.sku) for item in batch if item.sku]
+                        results = await asyncio.gather(*tasks, return_exceptions=True)
+                        
+                        for result in results:
+                            if isinstance(result, tuple) and result[1] is not None:
+                                image_cache[result[0]] = result[1]
+                
+                print(f"PDF IMAGES: Successfully cached {len(image_cache)} of {len(request.items)} images")
+            except Exception as e:
+                print(f"PDF IMAGES: Error during image fetch: {e}")
+                import traceback
+                traceback.print_exc()
         
         # Build product rows - each product is a mini-table row
         # Column widths: Image (25mm), Details (flex), Qty (18mm), Price (22mm), Total (25mm)
