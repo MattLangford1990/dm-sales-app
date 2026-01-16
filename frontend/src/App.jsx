@@ -2633,32 +2633,28 @@ function CartTab({ onOrderSubmitted }) {
       // Create blob URL
       const url = window.URL.createObjectURL(blob)
       
-      // Use the same approach for all platforms - create a link and click it
-      // This works better on iOS than window.open() after async operations
-      const a = document.createElement('a')
-      a.href = url
-      a.download = filename
-      a.style.display = 'none'
-      document.body.appendChild(a)
-      a.click()
-      
-      // For iOS, also try to open in new tab as fallback
+      // Check platform
       const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent)
+      
       if (isIOS) {
-        // Small delay then try opening - iOS may show "Downloads" popup
-        setTimeout(() => {
-          window.location.href = url
-        }, 100)
-        addToast('PDF ready - check Downloads or tap the link', 'success')
+        // iOS (Safari or Chrome) - open PDF directly in current window
+        // User can then use share button to save/email
+        window.location.href = url
+        addToast('PDF opened - use Share button to save or email', 'success')
       } else {
+        // Desktop browsers - trigger download
+        const a = document.createElement('a')
+        a.href = url
+        a.download = filename
+        a.style.display = 'none'
+        document.body.appendChild(a)
+        a.click()
+        setTimeout(() => {
+          document.body.removeChild(a)
+          window.URL.revokeObjectURL(url)
+        }, 10000)
         addToast('PDF downloaded!', 'success')
       }
-      
-      // Cleanup
-      setTimeout(() => {
-        document.body.removeChild(a)
-        window.URL.revokeObjectURL(url)
-      }, 10000)
       
     } catch (err) {
       console.error('PDF generation error:', err)
