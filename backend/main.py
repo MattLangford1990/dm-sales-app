@@ -1670,30 +1670,36 @@ async def export_quote_pdf(
             elements.append(info_table)
             elements.append(Spacer(1, 6*mm))
         
-        # Fetch images from self-hosted CDN
+        # Fetch images from self-hosted CDN - IN PARALLEL for speed
         image_cache = {}
         if request.include_images:
+            import asyncio
             cdn_base = "https://cdn.appdmbrands.com/products"
             print(f"PDF IMAGES: Fetching images for {len(request.items)} items from {cdn_base}")
-            async with httpx.AsyncClient(timeout=10.0) as client:
-                for item in request.items:
-                    if item.sku:
-                        # Convert SKU for CDN (dots to underscores for My Flame)
-                        cdn_sku = item.sku.replace('.', '_')
-                        # Try jpg first, then png
-                        for ext in ['jpg', 'png']:
-                            img_url = f"{cdn_base}/{cdn_sku}.{ext}"
-                            try:
-                                print(f"PDF IMAGES: Trying {img_url}")
-                                response = await client.get(img_url)
-                                print(f"PDF IMAGES: Response status {response.status_code} for {img_url}")
-                                if response.status_code == 200:
-                                    image_cache[item.sku] = response.content
-                                    print(f"PDF IMAGES: Cached {item.sku} ({len(response.content)} bytes)")
-                                    break  # Found image, stop trying extensions
-                            except Exception as img_err:
-                                print(f"PDF IMAGES: Error fetching {img_url}: {img_err}")
-            print(f"PDF IMAGES: Cached {len(image_cache)} images")
+            
+            async def fetch_image(client, sku):
+                """Fetch a single image, trying jpg then png"""
+                cdn_sku = sku.replace('.', '_')
+                for ext in ['jpg', 'png']:
+                    img_url = f"{cdn_base}/{cdn_sku}.{ext}"
+                    try:
+                        response = await client.get(img_url)
+                        if response.status_code == 200:
+                            return (sku, response.content)
+                    except:
+                        pass
+                return (sku, None)
+            
+            # Fetch all images in parallel (much faster!)
+            async with httpx.AsyncClient(timeout=5.0) as client:
+                tasks = [fetch_image(client, item.sku) for item in request.items if item.sku]
+                results = await asyncio.gather(*tasks, return_exceptions=True)
+                
+                for result in results:
+                    if isinstance(result, tuple) and result[1] is not None:
+                        image_cache[result[0]] = result[1]
+            
+            print(f"PDF IMAGES: Cached {len(image_cache)} of {len(request.items)} images")
         
         # Build product rows - each product is a mini-table row
         # Column widths: Image (25mm), Details (flex), Qty (18mm), Price (22mm), Total (25mm)
