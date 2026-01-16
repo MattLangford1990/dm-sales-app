@@ -180,6 +180,43 @@ function productMatchesBrands(product, agentBrands) {
 export async function syncImages(products, onProgress) {
   console.log('SYNC: Starting image sync...')
   
+  // Helper function to compress image before storing
+  const compressImage = async (blob) => {
+    return new Promise((resolve) => {
+      const img = new Image()
+      img.onload = () => {
+        // Resize to max 500px (good quality for all screens)
+        const maxSize = 500
+        let width = img.width
+        let height = img.height
+        
+        // Only resize if larger than maxSize
+        if (width > maxSize || height > maxSize) {
+          if (width > height) {
+            height = (height * maxSize) / width
+            width = maxSize
+          } else {
+            width = (width * maxSize) / height
+            height = maxSize
+          }
+        }
+        
+        const canvas = document.createElement('canvas')
+        canvas.width = width
+        canvas.height = height
+        const ctx = canvas.getContext('2d')
+        ctx.drawImage(img, 0, 0, width, height)
+        
+        // Export as JPEG at 80% quality
+        canvas.toBlob((compressedBlob) => {
+          resolve(compressedBlob)
+        }, 'image/jpeg', 0.8)
+      }
+      img.onerror = () => resolve(blob) // Return original if compression fails
+      img.src = URL.createObjectURL(blob)
+    })
+  }
+  
   // Get agent's brands from localStorage
   let agentBrands = []
   try {
@@ -239,22 +276,17 @@ export async function syncImages(products, onProgress) {
 
           if (response.ok) {
             const blob = await response.blob()
-            console.log('SYNC: Blob for', sku, '- type:', blob.type, 'size:', blob.size)
-
             // Only save if it has content
             if (blob.size > 500) {
-              await offlineStore.saveImage(sku, blob)
-
-              // Verify it was saved
-              const verify = await offlineStore.getImage(sku)
-              console.log('SYNC: Verify save for', sku, '- found:', !!verify)
-
+              // Compress before storing (500px max, 80% JPEG)
+              const compressedBlob = await compressImage(blob)
+              console.log('SYNC:', sku, '- original:', blob.size, 'compressed:', compressedBlob.size)
+              await offlineStore.saveImage(sku, compressedBlob)
               return { status: 'cached', sku }
             }
           }
 
           // No image found
-          console.log('SYNC: No image found for', sku)
           return { status: 'noimage', sku }
         } catch (err) {
           console.error('SYNC: Error for product', sku, err)
