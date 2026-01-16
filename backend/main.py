@@ -1670,12 +1670,17 @@ async def export_quote_pdf(
             elements.append(info_table)
             elements.append(Spacer(1, 6*mm))
         
-        # Fetch images from self-hosted CDN - IN PARALLEL for speed
+        # Fetch images from self-hosted CDN - IN BATCHES for memory safety
         image_cache = {}
         if request.include_images:
             import asyncio
             cdn_base = "https://cdn.appdmbrands.com/products"
-            print(f"PDF IMAGES: Fetching images for {len(request.items)} items from {cdn_base}")
+            
+            # Limit images for very large orders to avoid memory issues
+            MAX_IMAGES = 100
+            items_to_fetch = request.items[:MAX_IMAGES] if len(request.items) > MAX_IMAGES else request.items
+            
+            print(f"PDF IMAGES: Fetching images for {len(items_to_fetch)} items (of {len(request.items)} total) from {cdn_base}")
             
             async def fetch_image(client, sku):
                 """Fetch a single image, trying jpg then png"""
@@ -1690,16 +1695,19 @@ async def export_quote_pdf(
                         pass
                 return (sku, None)
             
-            # Fetch all images in parallel (much faster!)
+            # Fetch in batches of 20 to avoid overwhelming memory/connections
+            BATCH_SIZE = 20
             async with httpx.AsyncClient(timeout=5.0) as client:
-                tasks = [fetch_image(client, item.sku) for item in request.items if item.sku]
-                results = await asyncio.gather(*tasks, return_exceptions=True)
-                
-                for result in results:
-                    if isinstance(result, tuple) and result[1] is not None:
-                        image_cache[result[0]] = result[1]
+                for i in range(0, len(items_to_fetch), BATCH_SIZE):
+                    batch = items_to_fetch[i:i + BATCH_SIZE]
+                    tasks = [fetch_image(client, item.sku) for item in batch if item.sku]
+                    results = await asyncio.gather(*tasks, return_exceptions=True)
+                    
+                    for result in results:
+                        if isinstance(result, tuple) and result[1] is not None:
+                            image_cache[result[0]] = result[1]
             
-            print(f"PDF IMAGES: Cached {len(image_cache)} of {len(request.items)} images")
+            print(f"PDF IMAGES: Cached {len(image_cache)} of {len(items_to_fetch)} images")
         
         # Build product rows - each product is a mini-table row
         # Column widths: Image (25mm), Details (flex), Qty (18mm), Price (22mm), Total (25mm)
