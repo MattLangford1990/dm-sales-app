@@ -2253,8 +2253,8 @@ function CustomerSelectModal({ onSelect, onClose }) {
   }, [customerCache, debouncedSearch])
   
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-end sm:items-center justify-center z-50">
-      <div className="bg-white rounded-t-2xl sm:rounded-2xl w-full sm:max-w-lg max-h-[80vh] flex flex-col">
+    <div className="fixed inset-0 bg-black/50 flex items-start sm:items-center justify-center z-50 pt-4 sm:pt-0">
+      <div className="bg-white rounded-2xl w-full sm:max-w-lg mx-2 sm:mx-0 max-h-[60vh] sm:max-h-[80vh] flex flex-col">
         <div className="p-4 border-b flex items-center justify-between">
           <h2 className="text-lg font-bold">Select Customer</h2>
           <button onClick={onClose} className="text-gray-500 text-2xl leading-none">&times;</button>
