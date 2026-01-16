@@ -2517,7 +2517,8 @@ async def admin_refresh_image_manifest(agent: TokenData = Depends(require_admin)
 
 # Load German stock data
 GERMAN_STOCK_FILES = {
-    "raeder": os.path.join(os.path.dirname(__file__), "german_stock_raeder.json")
+    "raeder": os.path.join(os.path.dirname(__file__), "german_stock_raeder.json"),
+    "remember": os.path.join(os.path.dirname(__file__), "german_stock_remember.json")
 }
 
 def load_german_stock(brand: str) -> dict:

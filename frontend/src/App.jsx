@@ -1047,18 +1047,23 @@ function ProductDetailModal({ product, onClose, onAddToCart, germanStockInfo }) 
           
           {/* German Stock Info */}
           {germanStockInfo && (
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 flex-wrap">
               <span>🇩🇪</span>
               <span className={`text-sm px-3 py-1 rounded-full ${
                 germanStockInfo.stock > 0 ? 'bg-blue-100 text-blue-700' : 'bg-gray-100 text-gray-600'
               }`}>
                 {germanStockInfo.stock < 10 && germanStockInfo.restock_date
                   ? `Due ${formatRestockDate(germanStockInfo.restock_date)}`
-                  : germanStockInfo.stock > 0 
-                    ? `${germanStockInfo.stock} in Germany` 
+                  : germanStockInfo.stock > 0
+                    ? `${germanStockInfo.stock} in Germany`
                     : 'Out in Germany'
                 }
               </span>
+              {germanStockInfo.new && (
+                <span className="text-sm px-3 py-1 rounded-full bg-green-100 text-green-700 font-medium">
+                  ✨ New
+                </span>
+              )}
             </div>
           )}
           
@@ -1539,12 +1544,15 @@ function ProductsTab() {
     localStorage.setItem('productsViewMode', viewMode)
   }, [viewMode])
   
-  // Fetch German stock when Räder brand is selected
+  // Fetch German stock when Räder or Remember brand is selected
   useEffect(() => {
     const fetchGermanStock = async () => {
-      if (selectedBrand?.toLowerCase() === 'räder' && isOnline) {
+      const brandLower = selectedBrand?.toLowerCase()
+      const brandKey = brandLower === 'räder' ? 'raeder' : brandLower === 'remember' ? 'remember' : null
+
+      if (brandKey && isOnline) {
         try {
-          const data = await apiRequest('/german-stock/raeder')
+          const data = await apiRequest(`/german-stock/${brandKey}`)
           setGermanStock(data)
           console.log('Loaded German stock:', data.item_count, 'items')
         } catch (err) {
@@ -1782,20 +1790,23 @@ function ProductsTab() {
                         </span>
                       </div>
                       
-                      {/* German Stock Badge for Räder */}
+                      {/* German Stock Badge */}
                       {deStock && (
-                        <div className="flex items-center gap-1 mb-2">
+                        <div className="flex items-center gap-1 mb-2 flex-wrap">
                           <span className="text-xs">🇩🇪</span>
                           <span className={`text-xs px-2 py-0.5 rounded-full ${
                             deStock.stock > 0 ? 'bg-blue-100 text-blue-700' : 'bg-gray-100 text-gray-600'
                           }`}>
                             {deStock.stock < 10 && deStock.restock_date
                               ? `Due ${formatRestockDate(deStock.restock_date)}`
-                              : deStock.stock > 0 
-                                ? deStock.stock 
+                              : deStock.stock > 0
+                                ? deStock.stock
                                 : 'Out'
                             }
                           </span>
+                          {deStock.new && (
+                            <span className="text-xs px-2 py-0.5 rounded-full bg-green-100 text-green-700">New</span>
+                          )}
                         </div>
                       )}
                       
@@ -1877,21 +1888,26 @@ function ProductsTab() {
                         }`}>
                           {product.stock_on_hand > 0 ? product.stock_on_hand : 'Out'}
                         </span>
-                        {/* German Stock Badge for Räder */}
+                        {/* German Stock Badge */}
                         {deStock && (
-                          <span className="flex items-center gap-0.5">
-                            <span className="text-xs">🇩🇪</span>
-                            <span className={`text-xs px-2 py-0.5 rounded-full ${
-                              deStock.stock > 0 ? 'bg-blue-100 text-blue-700' : 'bg-gray-100 text-gray-600'
-                            }`}>
-                              {deStock.stock < 10 && deStock.restock_date
-                                ? `Due ${formatRestockDate(deStock.restock_date)}`
-                                : deStock.stock > 0 
-                                  ? deStock.stock 
-                                  : 'Out'
-                              }
+                          <>
+                            <span className="flex items-center gap-0.5">
+                              <span className="text-xs">🇩🇪</span>
+                              <span className={`text-xs px-2 py-0.5 rounded-full ${
+                                deStock.stock > 0 ? 'bg-blue-100 text-blue-700' : 'bg-gray-100 text-gray-600'
+                              }`}>
+                                {deStock.stock < 10 && deStock.restock_date
+                                  ? `Due ${formatRestockDate(deStock.restock_date)}`
+                                  : deStock.stock > 0
+                                    ? deStock.stock
+                                    : 'Out'
+                                }
+                              </span>
                             </span>
-                          </span>
+                            {deStock.new && (
+                              <span className="text-xs px-2 py-0.5 rounded-full bg-green-100 text-green-700">New</span>
+                            )}
+                          </>
                         )}
                       </div>
                       <h3 className="font-medium text-gray-800 text-sm truncate hover:text-primary-600">

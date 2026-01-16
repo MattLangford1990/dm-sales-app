@@ -1,0 +1,1447 @@
+{
+  "updated": "2026-01-16",
+  "brand": "Remember",
+  "item_count": 418,
+  "items": {
+    "AD6": {
+      "stock": 1474
+    },
+    "AK01": {
+      "stock": 262
+    },
+    "AK02": {
+      "stock": 125
+    },
+    "AK03": {
+      "stock": 0,
+      "restock_date": "2026-02-27",
+      "new": true
+    },
+    "AK04": {
+      "stock": 0,
+      "restock_date": "2026-02-27",
+      "new": true
+    },
+    "BA01": {
+      "stock": 0,
+      "restock_date": "2026-01-26"
+    },
+    "BKL01": {
+      "stock": 343
+    },
+    "BKM01": {
+      "stock": 587
+    },
+    "BKS01": {
+      "stock": 614
+    },
+    "BL21": {
+      "stock": 227
+    },
+    "BN07": {
+      "stock": 0,
+      "restock_date": "2026-02-20"
+    },
+    "BN08": {
+      "stock": 0,
+      "restock_date": "2026-01-13",
+      "new": true
+    },
+    "BN09": {
+      "stock": 0,
+      "restock_date": "2026-01-13",
+      "new": true
+    },
+    "BOC1": {
+      "stock": 974
+    },
+    "BP02": {
+      "stock": 143
+    },
+    "BP07": {
+      "stock": 819
+    },
+    "BP08": {
+      "stock": 0,
+      "restock_date": "2026-01-12",
+      "new": true
+    },
+    "BP09": {
+      "stock": 0,
+      "restock_date": "2026-01-12",
+      "new": true
+    },
+    "BU20": {
+      "stock": 536
+    },
+    "BU21": {
+      "stock": 321
+    },
+    "BU22": {
+      "stock": 2124
+    },
+    "BU30": {
+      "stock": 1791,
+      "new": true
+    },
+    "BU31": {
+      "stock": 1834,
+      "new": true
+    },
+    "BU32": {
+      "stock": 1831,
+      "new": true
+    },
+    "BV02": {
+      "stock": 41
+    },
+    "BV03": {
+      "stock": 835
+    },
+    "BY10": {
+      "stock": 0,
+      "restock_date": "2026-02-09"
+    },
+    "CC1": {
+      "stock": 2,
+      "restock_date": "2026-03-13"
+    },
+    "CD30": {
+      "stock": 394
+    },
+    "CD31": {
+      "stock": 434
+    },
+    "CD32": {
+      "stock": 456
+    },
+    "CK02": {
+      "stock": 341
+    },
+    "CM18": {
+      "stock": 3170
+    },
+    "CM20": {
+      "stock": 2781
+    },
+    "CM21": {
+      "stock": 914
+    },
+    "CM23": {
+      "stock": 0,
+      "restock_date": "2026-02-25"
+    },
+    "CRL08": {
+      "stock": 1,
+      "restock_date": "2026-04-20"
+    },
+    "CRL09": {
+      "stock": 0,
+      "restock_date": "2026-03-06"
+    },
+    "CRL10": {
+      "stock": 0,
+      "restock_date": "2026-03-06"
+    },
+    "CRO01": {
+      "stock": 37
+    },
+    "CRO02": {
+      "stock": 209
+    },
+    "CRO03": {
+      "stock": 10
+    },
+    "CRS09": {
+      "stock": 0,
+      "restock_date": "2026-03-06"
+    },
+    "CRS10": {
+      "stock": 0,
+      "restock_date": "2026-03-06"
+    },
+    "CT01": {
+      "stock": 1001
+    },
+    "CT02": {
+      "stock": 1075
+    },
+    "CT03": {
+      "stock": 1574
+    },
+    "CT04": {
+      "stock": 1751,
+      "new": true
+    },
+    "DB1": {
+      "stock": 1107
+    },
+    "DG44": {
+      "stock": 525
+    },
+    "EBG05": {
+      "stock": 0,
+      "restock_date": "2026-02-16",
+      "new": true
+    },
+    "EBG06": {
+      "stock": 0,
+      "restock_date": "2026-02-16",
+      "new": true
+    },
+    "EBG07": {
+      "stock": 0,
+      "restock_date": "2026-02-16",
+      "new": true
+    },
+    "EC1": {
+      "stock": 0,
+      "restock_date": "2026-01-30"
+    },
+    "EGK20": {
+      "stock": 0,
+      "restock_date": "2026-02-09",
+      "new": true
+    },
+    "EK01": {
+      "stock": 3002
+    },
+    "EM18": {
+      "stock": 463
+    },
+    "EM19": {
+      "stock": 304
+    },
+    "EM20": {
+      "stock": 1226
+    },
+    "EM21": {
+      "stock": 1524
+    },
+    "EM23": {
+      "stock": 0,
+      "restock_date": "2026-02-25"
+    },
+    "ESK01": {
+      "stock": 812
+    },
+    "ETL01": {
+      "stock": 0,
+      "restock_date": "2026-03-20"
+    },
+    "EV00E": {
+      "stock": 11
+    },
+    "EV03": {
+      "stock": 1295
+    },
+    "EV04": {
+      "stock": 504
+    },
+    "EV05": {
+      "stock": 421
+    },
+    "EV06": {
+      "stock": -15,
+      "restock_date": "2026-03-02"
+    },
+    "EV07": {
+      "stock": 52
+    },
+    "FA00E": {
+      "stock": 1
+    },
+    "FA33": {
+      "stock": 342
+    },
+    "FM01": {
+      "stock": 145
+    },
+    "FM09": {
+      "stock": 1687
+    },
+    "FM10": {
+      "stock": 1170
+    },
+    "FM11": {
+      "stock": 0,
+      "restock_date": "2026-02-16"
+    },
+    "FM12": {
+      "stock": 1295,
+      "new": true
+    },
+    "FM13": {
+      "stock": 1298,
+      "new": true
+    },
+    "FM30": {
+      "stock": 1111
+    },
+    "FM31": {
+      "stock": 1162
+    },
+    "FM32": {
+      "stock": 1066
+    },
+    "FO01": {
+      "stock": 109
+    },
+    "FO02": {
+      "stock": 201
+    },
+    "FO03": {
+      "stock": 555
+    },
+    "FO05": {
+      "stock": 878
+    },
+    "FO06": {
+      "stock": 632
+    },
+    "FO07": {
+      "stock": 1395,
+      "new": true
+    },
+    "FO08": {
+      "stock": 1434,
+      "new": true
+    },
+    "FZ00E": {
+      "stock": 4
+    },
+    "FZ01": {
+      "stock": 1907
+    },
+    "FZ03": {
+      "stock": 1097
+    },
+    "FZ04": {
+      "stock": 2125
+    },
+    "FZ05": {
+      "stock": 656
+    },
+    "FZ08": {
+      "stock": 1803,
+      "new": true
+    },
+    "GB10": {
+      "stock": 741
+    },
+    "GB11": {
+      "stock": 720
+    },
+    "GD20": {
+      "stock": 1
+    },
+    "GK10": {
+      "stock": 0,
+      "restock_date": "2026-01-06"
+    },
+    "GK12": {
+      "stock": 0,
+      "restock_date": "2026-01-30",
+      "new": true
+    },
+    "GL10": {
+      "stock": 0,
+      "restock_date": "2026-01-06"
+    },
+    "GL20": {
+      "stock": 25
+    },
+    "GL21": {
+      "stock": 434
+    },
+    "GL22": {
+      "stock": 0,
+      "restock_date": "2026-02-09",
+      "new": true
+    },
+    "GL23": {
+      "stock": 0,
+      "restock_date": "2026-02-09",
+      "new": true
+    },
+    "GL24": {
+      "stock": 0,
+      "restock_date": "2026-02-09",
+      "new": true
+    },
+    "GS01": {
+      "stock": 549
+    },
+    "GS10": {
+      "stock": 1213
+    },
+    "GS11": {
+      "stock": 1043
+    },
+    "GT01": {
+      "stock": 1374
+    },
+    "GT02": {
+      "stock": 990
+    },
+    "GT03": {
+      "stock": 1221
+    },
+    "HA230": {
+      "stock": 106
+    },
+    "HF01": {
+      "stock": 0,
+      "restock_date": "2026-03-06"
+    },
+    "HF02": {
+      "stock": 0,
+      "restock_date": "2026-03-06"
+    },
+    "HF03": {
+      "stock": 0,
+      "restock_date": "2026-03-06"
+    },
+    "HF04": {
+      "stock": 1881,
+      "new": true
+    },
+    "HF05": {
+      "stock": 1869,
+      "new": true
+    },
+    "HPV01": {
+      "stock": 0,
+      "restock_date": "2026-01-15",
+      "new": true
+    },
+    "HPV02": {
+      "stock": 0,
+      "restock_date": "2026-01-15",
+      "new": true
+    },
+    "HPV03": {
+      "stock": 0,
+      "restock_date": "2026-01-15",
+      "new": true
+    },
+    "HPV04": {
+      "stock": 0,
+      "restock_date": "2026-01-15",
+      "new": true
+    },
+    "HPV05": {
+      "stock": 0,
+      "restock_date": "2026-01-15",
+      "new": true
+    },
+    "HPV06": {
+      "stock": 0,
+      "restock_date": "2026-01-15",
+      "new": true
+    },
+    "HS01": {
+      "stock": 466
+    },
+    "HS02": {
+      "stock": 1037
+    },
+    "HS11": {
+      "stock": 967
+    },
+    "HS12": {
+      "stock": 635
+    },
+    "HT15": {
+      "stock": 123
+    },
+    "HT20": {
+      "stock": 577
+    },
+    "HT21": {
+      "stock": 667
+    },
+    "HT22": {
+      "stock": 674
+    },
+    "HWL40": {
+      "stock": 0,
+      "restock_date": "2026-03-09",
+      "new": true
+    },
+    "HWL41": {
+      "stock": 0,
+      "restock_date": "2026-03-09",
+      "new": true
+    },
+    "HWL42": {
+      "stock": 0,
+      "restock_date": "2026-03-09",
+      "new": true
+    },
+    "KA26": {
+      "stock": 460
+    },
+    "KB1": {
+      "stock": 962
+    },
+    "KBED01": {
+      "stock": 805
+    },
+    "KBR01": {
+      "stock": 548
+    },
+    "KBR02": {
+      "stock": 410
+    },
+    "KF05": {
+      "stock": 82
+    },
+    "KF06": {
+      "stock": 96
+    },
+    "KGZ01": {
+      "stock": 543
+    },
+    "KH10": {
+      "stock": 150
+    },
+    "KH20": {
+      "stock": 980
+    },
+    "KH30": {
+      "stock": 1628
+    },
+    "KH31": {
+      "stock": 2415
+    },
+    "KH50": {
+      "stock": 623
+    },
+    "KH70": {
+      "stock": 351
+    },
+    "KH80": {
+      "stock": 78
+    },
+    "KI11": {
+      "stock": 740
+    },
+    "KI12": {
+      "stock": 614
+    },
+    "KI14": {
+      "stock": 8
+    },
+    "KI15": {
+      "stock": 385
+    },
+    "KKS01": {
+      "stock": 479
+    },
+    "KKS02": {
+      "stock": 601
+    },
+    "KKS03": {
+      "stock": 631
+    },
+    "KO21": {
+      "stock": 553
+    },
+    "KO22": {
+      "stock": 465
+    },
+    "KO23": {
+      "stock": 378
+    },
+    "KO24": {
+      "stock": 2,
+      "restock_date": "2026-04-10"
+    },
+    "KO25": {
+      "stock": 3
+    },
+    "KSK01": {
+      "stock": 326
+    },
+    "KT02": {
+      "stock": 105
+    },
+    "KTS01": {
+      "stock": 526
+    },
+    "KY01": {
+      "stock": 853
+    },
+    "KY02": {
+      "stock": 500
+    },
+    "KY04": {
+      "stock": 555
+    },
+    "KY05": {
+      "stock": 0,
+      "restock_date": "2026-03-02"
+    },
+    "KY06": {
+      "stock": 0,
+      "restock_date": "2026-03-02",
+      "new": true
+    },
+    "LB20": {
+      "stock": 691
+    },
+    "LB21": {
+      "stock": 1469
+    },
+    "LB22": {
+      "stock": 1802
+    },
+    "LB23": {
+      "stock": 1838
+    },
+    "LB30": {
+      "stock": 770
+    },
+    "LB31": {
+      "stock": 891
+    },
+    "LB33": {
+      "stock": 1688
+    },
+    "LK01": {
+      "stock": 786
+    },
+    "LLM01": {
+      "stock": 0,
+      "restock_date": "2026-01-30",
+      "new": true
+    },
+    "LLM02": {
+      "stock": 0,
+      "restock_date": "2026-01-30",
+      "new": true
+    },
+    "LLM03": {
+      "stock": 0,
+      "restock_date": "2026-01-30",
+      "new": true
+    },
+    "LO01": {
+      "stock": 4564
+    },
+    "LO02": {
+      "stock": 4284
+    },
+    "LO03": {
+      "stock": 6198
+    },
+    "LO04": {
+      "stock": 4291
+    },
+    "LO05": {
+      "stock": 3621,
+      "new": true
+    },
+    "LO06": {
+      "stock": 3322,
+      "new": true
+    },
+    "LP01": {
+      "stock": 684
+    },
+    "LP02": {
+      "stock": 0,
+      "restock_date": "2026-01-22"
+    },
+    "LP03": {
+      "stock": 0,
+      "restock_date": "2026-01-22"
+    },
+    "LT01": {
+      "stock": 2422
+    },
+    "LT04": {
+      "stock": 4766
+    },
+    "LT05": {
+      "stock": 3203
+    },
+    "LT20": {
+      "stock": 1321
+    },
+    "LT21": {
+      "stock": 1526
+    },
+    "LT30": {
+      "stock": 2174
+    },
+    "LT31": {
+      "stock": 2692
+    },
+    "LT32": {
+      "stock": 2783
+    },
+    "LT33": {
+      "stock": 2171
+    },
+    "LU06": {
+      "stock": 3134
+    },
+    "LU07": {
+      "stock": 2764
+    },
+    "LU30": {
+      "stock": 3230
+    },
+    "LU31": {
+      "stock": 295
+    },
+    "LU32": {
+      "stock": 4397
+    },
+    "MB18": {
+      "stock": 213
+    },
+    "MB20": {
+      "stock": 403
+    },
+    "MB21": {
+      "stock": 256
+    },
+    "MB23": {
+      "stock": 0,
+      "restock_date": "2026-02-25"
+    },
+    "MBS01": {
+      "stock": 345
+    },
+    "MBS02": {
+      "stock": 1392,
+      "restock_date": "2025-12-15",
+      "new": true
+    },
+    "MEM01": {
+      "stock": 695
+    },
+    "MEM03": {
+      "stock": 499
+    },
+    "MEM06": {
+      "stock": 431
+    },
+    "MEM07": {
+      "stock": 0,
+      "restock_date": "2026-01-30",
+      "new": true
+    },
+    "MHT30": {
+      "stock": 0,
+      "restock_date": "2026-01-06",
+      "new": true
+    },
+    "MHT31": {
+      "stock": 0,
+      "restock_date": "2026-01-06",
+      "new": true
+    },
+    "MHT32": {
+      "stock": 0,
+      "restock_date": "2026-01-06",
+      "new": true
+    },
+    "MI1": {
+      "stock": 758
+    },
+    "MO1": {
+      "stock": 2402
+    },
+    "MS10": {
+      "stock": 0,
+      "restock_date": "2026-01-30",
+      "new": true
+    },
+    "MT22": {
+      "stock": 928
+    },
+    "MT24": {
+      "stock": 1211
+    },
+    "MT25": {
+      "stock": 2097
+    },
+    "MT26": {
+      "stock": 1034
+    },
+    "MTT01": {
+      "stock": 0,
+      "restock_date": "2026-01-30",
+      "new": true
+    },
+    "MTT02": {
+      "stock": 0,
+      "restock_date": "2026-01-30",
+      "new": true
+    },
+    "MTT03": {
+      "stock": 0,
+      "restock_date": "2026-01-30",
+      "new": true
+    },
+    "OH02": {
+      "stock": 368
+    },
+    "OH04": {
+      "stock": 947
+    },
+    "OH05": {
+      "stock": 950
+    },
+    "OH06": {
+      "stock": 2355
+    },
+    "OH07": {
+      "stock": 0,
+      "restock_date": "2026-02-20",
+      "new": true
+    },
+    "PA02": {
+      "stock": 80
+    },
+    "PA03": {
+      "stock": 0,
+      "restock_date": "2026-01-13"
+    },
+    "PA04": {
+      "stock": 0,
+      "restock_date": "2026-01-13",
+      "new": true
+    },
+    "PA05": {
+      "stock": 0,
+      "restock_date": "2026-01-13",
+      "new": true
+    },
+    "PA06": {
+      "stock": 0,
+      "restock_date": "2026-01-13",
+      "new": true
+    },
+    "PA2": {
+      "stock": 2853
+    },
+    "PDS10": {
+      "stock": 390
+    },
+    "PG01": {
+      "stock": 0
+    },
+    "PH47": {
+      "stock": 83
+    },
+    "PS01": {
+      "stock": 788
+    },
+    "PU36": {
+      "stock": 0,
+      "restock_date": "2026-03-06"
+    },
+    "PU37": {
+      "stock": 23
+    },
+    "RC11": {
+      "stock": 1052
+    },
+    "RC12": {
+      "stock": 1584
+    },
+    "RS00E": {
+      "stock": 1
+    },
+    "RS11": {
+      "stock": 1370
+    },
+    "RS16": {
+      "stock": 966
+    },
+    "RS18": {
+      "stock": 1283
+    },
+    "RS19": {
+      "stock": 1901
+    },
+    "RS20": {
+      "stock": 182
+    },
+    "RU1": {
+      "stock": 303
+    },
+    "RW1": {
+      "stock": 36
+    },
+    "SCO01": {
+      "stock": 0,
+      "restock_date": "2026-01-16",
+      "new": true
+    },
+    "SD00E": {
+      "stock": 0
+    },
+    "SD10": {
+      "stock": 257
+    },
+    "SE2": {
+      "stock": 484
+    },
+    "SG1": {
+      "stock": 1312
+    },
+    "SG12": {
+      "stock": 312
+    },
+    "SG13": {
+      "stock": 223
+    },
+    "SH1": {
+      "stock": 296
+    },
+    "SK20": {
+      "stock": 2084
+    },
+    "SK21": {
+      "stock": 2309
+    },
+    "SK22": {
+      "stock": 250
+    },
+    "SK23": {
+      "stock": 902
+    },
+    "SK24": {
+      "stock": 2,
+      "restock_date": "2026-04-13"
+    },
+    "SK25": {
+      "stock": 0,
+      "restock_date": "2026-04-13"
+    },
+    "SK28": {
+      "stock": 0,
+      "restock_date": "2026-04-13"
+    },
+    "SK29": {
+      "stock": 0,
+      "restock_date": "2026-09-01"
+    },
+    "SK30": {
+      "stock": 0,
+      "restock_date": "2026-09-01"
+    },
+    "SK31": {
+      "stock": 0,
+      "restock_date": "2026-09-01"
+    },
+    "SKU01": {
+      "stock": 3
+    },
+    "SL47": {
+      "stock": 2299
+    },
+    "SL48": {
+      "stock": 2747
+    },
+    "SN00E": {
+      "stock": 3
+    },
+    "SN01": {
+      "stock": 2746
+    },
+    "SN02": {
+      "stock": 1119
+    },
+    "SN03": {
+      "stock": 2344,
+      "new": true
+    },
+    "SN11": {
+      "stock": 1093
+    },
+    "SN12": {
+      "stock": 764
+    },
+    "SN13": {
+      "stock": 1121,
+      "new": true
+    },
+    "SO01": {
+      "stock": 1,
+      "restock_date": "2026-03-19"
+    },
+    "SO29": {
+      "stock": 350
+    },
+    "SO33": {
+      "stock": 101
+    },
+    "SO41": {
+      "stock": 977
+    },
+    "SO42": {
+      "stock": 769
+    },
+    "SO43": {
+      "stock": 717
+    },
+    "SO47": {
+      "stock": 20,
+      "restock_date": "2026-03-19"
+    },
+    "SO48": {
+      "stock": 658
+    },
+    "SO49": {
+      "stock": 552
+    },
+    "SO50": {
+      "stock": 381
+    },
+    "SO51": {
+      "stock": 676
+    },
+    "SO52": {
+      "stock": 1173
+    },
+    "SO53": {
+      "stock": 1867
+    },
+    "SO63": {
+      "stock": 490
+    },
+    "SO64": {
+      "stock": 225
+    },
+    "SO65": {
+      "stock": 882
+    },
+    "SO67": {
+      "stock": 393
+    },
+    "SO68": {
+      "stock": 407
+    },
+    "SO70": {
+      "stock": 0,
+      "restock_date": "2026-03-19"
+    },
+    "SO71": {
+      "stock": 114
+    },
+    "SO72": {
+      "stock": 6
+    },
+    "SO73": {
+      "stock": 342
+    },
+    "SO74": {
+      "stock": 76
+    },
+    "SO75": {
+      "stock": 1043
+    },
+    "SO76": {
+      "stock": 1355
+    },
+    "SOL1": {
+      "stock": 0,
+      "restock_date": "2026-01-23"
+    },
+    "SST02": {
+      "stock": 0,
+      "restock_date": "2026-01-19",
+      "new": true
+    },
+    "ST20": {
+      "stock": 1332
+    },
+    "ST21": {
+      "stock": 608
+    },
+    "ST22": {
+      "stock": 1109
+    },
+    "TB41": {
+      "stock": 1841
+    },
+    "TB43": {
+      "stock": 1630
+    },
+    "TB44": {
+      "stock": 1705
+    },
+    "TB45": {
+      "stock": 291
+    },
+    "TF20": {
+      "stock": 227
+    },
+    "TF22": {
+      "stock": 41
+    },
+    "TG1": {
+      "stock": 3132
+    },
+    "TH10": {
+      "stock": 1689
+    },
+    "TH11": {
+      "stock": 1129
+    },
+    "TH12": {
+      "stock": 1059
+    },
+    "TH13": {
+      "stock": 584
+    },
+    "TH14": {
+      "stock": 1486
+    },
+    "TH15": {
+      "stock": 994
+    },
+    "TH16": {
+      "stock": 2400
+    },
+    "THA250": {
+      "stock": 0,
+      "restock_date": "2026-01-20",
+      "new": true
+    },
+    "THA251": {
+      "stock": 0,
+      "restock_date": "2026-01-20",
+      "new": true
+    },
+    "THA252": {
+      "stock": 0,
+      "restock_date": "2026-01-20",
+      "new": true
+    },
+    "THA253": {
+      "stock": 0,
+      "restock_date": "2026-01-20",
+      "new": true
+    },
+    "THA350": {
+      "stock": 0,
+      "restock_date": "2026-01-20",
+      "new": true
+    },
+    "THA351": {
+      "stock": 0,
+      "restock_date": "2026-01-20",
+      "new": true
+    },
+    "THA352": {
+      "stock": 0,
+      "restock_date": "2026-01-20",
+      "new": true
+    },
+    "THA353": {
+      "stock": 0,
+      "restock_date": "2026-01-20",
+      "new": true
+    },
+    "THV04": {
+      "stock": 0,
+      "restock_date": "2026-01-20",
+      "new": true
+    },
+    "THV05": {
+      "stock": 0,
+      "restock_date": "2026-01-20",
+      "new": true
+    },
+    "THW02": {
+      "stock": 0,
+      "restock_date": "2026-01-20",
+      "new": true
+    },
+    "TK01": {
+      "stock": 1,
+      "restock_date": "2026-02-25"
+    },
+    "TK02": {
+      "stock": 643
+    },
+    "TK03": {
+      "stock": 31
+    },
+    "TKI16": {
+      "stock": 1633,
+      "new": true
+    },
+    "TKI17": {
+      "stock": 1628,
+      "new": true
+    },
+    "TKI18": {
+      "stock": 1642,
+      "new": true
+    },
+    "TKI19": {
+      "stock": 1643,
+      "new": true
+    },
+    "TL20": {
+      "stock": 195
+    },
+    "TM11": {
+      "stock": 76
+    },
+    "TM20": {
+      "stock": 246
+    },
+    "TM30": {
+      "stock": 623
+    },
+    "TM31": {
+      "stock": 1518
+    },
+    "TN00E": {
+      "stock": 2
+    },
+    "TN02": {
+      "stock": 1797
+    },
+    "TN03": {
+      "stock": 326
+    },
+    "TN06": {
+      "stock": 1783
+    },
+    "TN07": {
+      "stock": 0,
+      "restock_date": "2026-02-16",
+      "new": true
+    },
+    "TN200E": {
+      "stock": 0
+    },
+    "TR00E": {
+      "stock": 2
+    },
+    "TR01": {
+      "stock": 1,
+      "restock_date": "2026-02-06"
+    },
+    "TR16": {
+      "stock": 121
+    },
+    "TR19": {
+      "stock": 0,
+      "restock_date": "2026-02-06"
+    },
+    "TR22": {
+      "stock": 236
+    },
+    "TR24": {
+      "stock": 561
+    },
+    "TR25": {
+      "stock": 0,
+      "restock_date": "2026-02-06",
+      "new": true
+    },
+    "TS51": {
+      "stock": 477
+    },
+    "TS52": {
+      "stock": 720
+    },
+    "TU1": {
+      "stock": 1308
+    },
+    "TV1": {
+      "stock": 1034
+    },
+    "UH02": {
+      "stock": 1223
+    },
+    "US10": {
+      "stock": 9,
+      "restock_date": "2026-03-02"
+    },
+    "UT10": {
+      "stock": 112
+    },
+    "VG10": {
+      "stock": 1106
+    },
+    "VG11": {
+      "stock": 192
+    },
+    "VM02": {
+      "stock": 3931,
+      "new": true
+    },
+    "WB22": {
+      "stock": 883
+    },
+    "WBS03": {
+      "stock": 196
+    },
+    "WBS04": {
+      "stock": 1850
+    },
+    "WBS05": {
+      "stock": 1075
+    },
+    "WBS06": {
+      "stock": 1471
+    },
+    "WBS07": {
+      "stock": 2434
+    },
+    "WBS08": {
+      "stock": 1377,
+      "new": true
+    },
+    "WD01": {
+      "stock": 257
+    },
+    "WD02": {
+      "stock": 914
+    },
+    "WF01": {
+      "stock": 746
+    },
+    "WF02": {
+      "stock": 1002
+    },
+    "WG02": {
+      "stock": 109
+    },
+    "WH01": {
+      "stock": 1856
+    },
+    "WK03": {
+      "stock": 579
+    },
+    "WKS35": {
+      "stock": 71
+    },
+    "WL10": {
+      "stock": 1172
+    },
+    "WL14": {
+      "stock": 52
+    },
+    "WL15": {
+      "stock": 0,
+      "restock_date": "2026-01-05",
+      "new": true
+    },
+    "WL16": {
+      "stock": 0,
+      "restock_date": "2026-01-05",
+      "new": true
+    },
+    "WL20": {
+      "stock": 705
+    },
+    "WL21": {
+      "stock": 187
+    },
+    "WL30": {
+      "stock": 601
+    },
+    "WL31": {
+      "stock": 2920
+    },
+    "WO26": {
+      "stock": 9
+    },
+    "WPH01": {
+      "stock": 0,
+      "restock_date": "2026-02-02",
+      "new": true
+    },
+    "WPH02": {
+      "stock": 0,
+      "restock_date": "2026-02-02",
+      "new": true
+    },
+    "WPK01": {
+      "stock": 0,
+      "restock_date": "2026-04-30"
+    },
+    "WPS01": {
+      "stock": 1,
+      "restock_date": "2026-08-01"
+    },
+    "WPS02": {
+      "stock": 4,
+      "restock_date": "2026-08-01"
+    },
+    "WU01": {
+      "stock": 1080
+    },
+    "WU02": {
+      "stock": 324
+    },
+    "WU03": {
+      "stock": 221
+    },
+    "XHO01": {
+      "stock": 113
+    },
+    "XHO02": {
+      "stock": 375
+    },
+    "XHO03": {
+      "stock": 120
+    },
+    "XKS04": {
+      "stock": 876
+    },
+    "XKS05": {
+      "stock": 702
+    },
+    "XKS06": {
+      "stock": 743
+    },
+    "XTP01": {
+      "stock": 0,
+      "restock_date": "2026-04-20"
+    },
+    "XTP06": {
+      "stock": 0,
+      "restock_date": "2026-04-20"
+    },
+    "XWS03": {
+      "stock": 31
+    },
+    "YA06": {
+      "stock": 521
+    },
+    "YA21": {
+      "stock": 174
+    },
+    "YA22": {
+      "stock": 650
+    },
+    "YA25": {
+      "stock": 315
+    },
+    "YH01": {
+      "stock": 808
+    },
+    "YH03": {
+      "stock": 1025
+    },
+    "ZP1": {
+      "stock": 0,
+      "restock_date": "2026-03-13"
+    }
+  }
+}
