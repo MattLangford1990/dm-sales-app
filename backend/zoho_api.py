@@ -17,7 +17,7 @@ _all_items_cache = {
     "items": None,
     "cached_at": None
 }
-ALL_ITEMS_CACHE_TTL = timedelta(minutes=30)  # Refresh every 30 minutes
+ALL_ITEMS_CACHE_TTL = timedelta(minutes=120)  # Refresh every 2 hours
 _cache_lock = asyncio.Lock()  # Prevent concurrent cache refreshes
 
 async def get_all_items_cached() -> list:
