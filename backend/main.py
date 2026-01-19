@@ -84,15 +84,11 @@ app.add_middleware(
 )
 
 
-# Warm the product cache at startup so first barcode scan is fast
+# NO STARTUP CACHE WARMING - database cache persists across restarts
+# Cache is refreshed only when Zoho triggers /api/trigger-sync every 4 hours
 @app.on_event("startup")
-async def warm_product_cache():
-    print("STARTUP: Warming product cache from Zoho...")
-    try:
-        items = await zoho_api.get_all_items_cached()
-        print(f"STARTUP: Product cache warmed with {len(items)} items")
-    except Exception as e:
-        print(f"STARTUP: Failed to warm cache (will retry on first request): {e}")
+async def startup_event():
+    print("STARTUP: Server started. Product cache will be loaded from database on first request.")
 
 
 # ============ Pydantic Models ============

@@ -89,6 +89,17 @@ class ProductFeed(Base):
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
 
+class ProductCache(Base):
+    """Stores the cached product data from Zoho - survives server restarts"""
+    __tablename__ = "product_cache"
+    
+    id = Column(String, primary_key=True, default="main")  # Only one cache, always "main"
+    items_json = Column(Text, nullable=False)  # JSON string of all items
+    item_count = Column(Float, default=0)
+    cached_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
 # ============ Database Initialization ============
 
 def init_db():

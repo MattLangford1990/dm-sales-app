@@ -1,43 +1,107 @@
 import httpx
 import asyncio
+import json
 from datetime import datetime, timedelta
 from config import get_settings
 
 settings = get_settings()
 
-# Token cache
+# Token cache (memory only - tokens are short-lived)
 _token_cache = {
     "access_token": None,
     "expires_at": None
 }
 
-# ============ PRODUCT CACHE (reduces API calls significantly) ============
-# Caches ALL items from Zoho for 30 minutes
-_all_items_cache = {
+# ============ PRODUCT CACHE (DATABASE-BACKED - survives restarts) ============
+# In-memory cache is just a mirror of the database cache
+_memory_cache = {
     "items": None,
     "cached_at": None
 }
-ALL_ITEMS_CACHE_TTL = timedelta(minutes=360)  # Refresh every 6 hours
+ALL_ITEMS_CACHE_TTL = timedelta(hours=6)  # Refresh every 6 hours
 _cache_lock = asyncio.Lock()  # Prevent concurrent cache refreshes
 
+
+def _get_db_cache():
+    """Get cached items from database"""
+    from database import SessionLocal, ProductCache
+    db = SessionLocal()
+    try:
+        cache = db.query(ProductCache).filter(ProductCache.id == "main").first()
+        if cache and cache.items_json:
+            return {
+                "items": json.loads(cache.items_json),
+                "cached_at": cache.cached_at
+            }
+        return None
+    except Exception as e:
+        print(f"CACHE: Error reading from database: {e}")
+        return None
+    finally:
+        db.close()
+
+
+def _save_db_cache(items: list):
+    """Save items to database cache"""
+    from database import SessionLocal, ProductCache
+    db = SessionLocal()
+    try:
+        cache = db.query(ProductCache).filter(ProductCache.id == "main").first()
+        items_json = json.dumps(items)
+        now = datetime.utcnow()
+        
+        if cache:
+            cache.items_json = items_json
+            cache.item_count = len(items)
+            cache.cached_at = now
+            cache.updated_at = now
+        else:
+            cache = ProductCache(
+                id="main",
+                items_json=items_json,
+                item_count=len(items),
+                cached_at=now
+            )
+            db.add(cache)
+        
+        db.commit()
+        print(f"CACHE: Saved {len(items)} items to database")
+    except Exception as e:
+        print(f"CACHE: Error saving to database: {e}")
+        db.rollback()
+    finally:
+        db.close()
+
+
 async def get_all_items_cached() -> list:
-    """Get all items from Zoho with caching - dramatically reduces API calls"""
-    global _all_items_cache
-    now = datetime.now()
+    """Get all items from Zoho with database-backed caching - survives restarts"""
+    global _memory_cache
+    now = datetime.utcnow()
     
-    # Return cached items if still valid
-    if _all_items_cache["items"] and _all_items_cache["cached_at"]:
-        age = now - _all_items_cache["cached_at"]
+    # 1. Check memory cache first (fastest)
+    if _memory_cache["items"] and _memory_cache["cached_at"]:
+        age = now - _memory_cache["cached_at"]
         if age < ALL_ITEMS_CACHE_TTL:
-            return _all_items_cache["items"]
+            return _memory_cache["items"]
     
-    # Use lock to prevent multiple concurrent fetches
+    # 2. Check database cache (survives restarts)
+    db_cache = _get_db_cache()
+    if db_cache and db_cache["cached_at"]:
+        age = now - db_cache["cached_at"]
+        if age < ALL_ITEMS_CACHE_TTL:
+            # Populate memory cache from database
+            _memory_cache["items"] = db_cache["items"]
+            _memory_cache["cached_at"] = db_cache["cached_at"]
+            print(f"CACHE: Loaded {len(db_cache['items'])} items from database (age: {age})")
+            return db_cache["items"]
+    
+    # 3. Cache miss - need to fetch from Zoho
     async with _cache_lock:
-        # Double-check after acquiring lock (another request might have populated it)
-        if _all_items_cache["items"] and _all_items_cache["cached_at"]:
-            age = now - _all_items_cache["cached_at"]
+        # Double-check after acquiring lock
+        if _memory_cache["items"] and _memory_cache["cached_at"]:
+            age = now - _memory_cache["cached_at"]
             if age < ALL_ITEMS_CACHE_TTL:
-                return _all_items_cache["items"]
+                return _memory_cache["items"]
         
         # Fetch all items from Zoho
         print("CACHE: Fetching all items from Zoho...")
@@ -56,19 +120,38 @@ async def get_all_items_cached() -> list:
             if page > 100:  # Safety limit (20,000 items max)
                 break
         
-        # Update cache
-        _all_items_cache["items"] = all_items
-        _all_items_cache["cached_at"] = now
+        # Update memory cache
+        _memory_cache["items"] = all_items
+        _memory_cache["cached_at"] = now
+        
+        # Save to database (persists across restarts)
+        _save_db_cache(all_items)
+        
         print(f"CACHE: Stored {len(all_items)} items, expires in {ALL_ITEMS_CACHE_TTL}")
         
         return all_items
 
+
 def invalidate_items_cache():
     """Force refresh of items cache on next request"""
-    global _all_items_cache
-    _all_items_cache["items"] = None
-    _all_items_cache["cached_at"] = None
-    print("CACHE: Items cache invalidated")
+    global _memory_cache
+    _memory_cache["items"] = None
+    _memory_cache["cached_at"] = None
+    
+    # Also clear database cache
+    from database import SessionLocal, ProductCache
+    db = SessionLocal()
+    try:
+        cache = db.query(ProductCache).filter(ProductCache.id == "main").first()
+        if cache:
+            db.delete(cache)
+            db.commit()
+    except Exception as e:
+        print(f"CACHE: Error clearing database cache: {e}")
+    finally:
+        db.close()
+    
+    print("CACHE: Items cache invalidated (memory + database)")
 
 # Image cache - LIMITED size to prevent memory issues
 # Uses simple LRU-style eviction
