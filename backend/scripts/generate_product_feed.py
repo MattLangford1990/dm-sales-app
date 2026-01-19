@@ -96,6 +96,7 @@ def transform_product(item, pack_quantities, image_urls):
         "pack_qty": pack_quantities.get(sku),
         "status": item.get("status", "active"),
         "image_url": image_urls.get(sku) or None,
+        "has_image": True,  # All products have images on CDN
         "created_time": item.get("created_time", "")
     }
 
