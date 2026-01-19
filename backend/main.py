@@ -2357,6 +2357,7 @@ async def admin_generate_feed(agent: TokenData = Depends(require_admin)):
 
 
 @app.post("/api/trigger-sync")
+@app.get("/api/trigger-sync")
 async def trigger_sync(x_sync_key: Optional[str] = Header(None)):
     """
     Endpoint called by Zoho Scheduler to trigger a product sync.
