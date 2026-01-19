@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException, Depends, status, UploadFile, File, Form
+from fastapi import FastAPI, HTTPException, Depends, status, UploadFile, File, Form, Header
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from fastapi.responses import Response, FileResponse, StreamingResponse
@@ -2354,6 +2354,46 @@ async def admin_generate_feed(agent: TokenData = Depends(require_admin)):
         raise HTTPException(status_code=500, detail="Feed generation timed out")
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/trigger-sync")
+async def trigger_sync(x_sync_key: Optional[str] = Header(None)):
+    """
+    Endpoint called by Zoho Scheduler to trigger a product sync.
+    Invalidates the cache so the next request fetches fresh data from Zoho.
+    
+    Requires X-Sync-Key header matching CRON_SECRET.
+    """
+    # Validate the sync key
+    if not settings.cron_secret:
+        raise HTTPException(status_code=500, detail="CRON_SECRET not configured")
+    
+    if x_sync_key != settings.cron_secret:
+        print(f"TRIGGER-SYNC: Invalid key received")
+        raise HTTPException(status_code=401, detail="Invalid sync key")
+    
+    print(f"TRIGGER-SYNC: Valid sync trigger received")
+    
+    # Invalidate the cache
+    zoho_api.invalidate_items_cache()
+    
+    # Trigger a fresh fetch to warm the cache
+    try:
+        items = await zoho_api.get_all_items_cached()
+        print(f"TRIGGER-SYNC: Cache refreshed with {len(items)} items")
+        return {
+            "success": True,
+            "message": "Cache invalidated and refreshed",
+            "items_count": len(items),
+            "timestamp": datetime.utcnow().isoformat()
+        }
+    except Exception as e:
+        print(f"TRIGGER-SYNC ERROR: {e}")
+        return {
+            "success": False,
+            "message": f"Cache invalidated but refresh failed: {str(e)}",
+            "timestamp": datetime.utcnow().isoformat()
+        }
 
 
 @app.post("/api/cron/generate-feed")
