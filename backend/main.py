@@ -19,13 +19,23 @@ from config import get_settings
 from agents import get_agent, get_agent_brands, verify_agent_pin, list_agents, get_all_brand_patterns, is_admin, list_all_agents_admin, create_agent, update_agent, delete_agent, get_all_brands, change_agent_pin
 import zoho_api
 
-# Load pack quantities
-PACK_QUANTITIES_FILE = os.path.join(os.path.dirname(__file__), "pack_quantities.json")
+# Load pack quantities (merge all pack qty files)
+PACK_QUANTITIES_FILES = [
+    os.path.join(os.path.dirname(__file__), "pack_quantities.json"),
+    os.path.join(os.path.dirname(__file__), "remember_pack_qtys.json"),
+    os.path.join(os.path.dirname(__file__), "i4s_pack_qtys.json"),
+    os.path.join(os.path.dirname(__file__), "myflame_pack_qtys.json"),
+]
 def load_pack_quantities():
-    if os.path.exists(PACK_QUANTITIES_FILE):
-        with open(PACK_QUANTITIES_FILE, "r") as f:
-            return json.load(f)
-    return {}
+    merged = {}
+    for filepath in PACK_QUANTITIES_FILES:
+        if os.path.exists(filepath):
+            with open(filepath, "r") as f:
+                data = json.load(f)
+                merged.update(data)
+                print(f"STARTUP: Loaded {len(data)} pack quantities from {os.path.basename(filepath)}")
+    print(f"STARTUP: Total pack quantities loaded: {len(merged)}")
+    return merged
 
 _pack_quantities = load_pack_quantities()
 
