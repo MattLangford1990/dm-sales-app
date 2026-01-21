@@ -5,6 +5,37 @@ const DB_VERSION = 3  // Version 3 changes images keyPath to sku
 
 let db = null
 
+// Request persistent storage so iOS/browser doesn't evict our data
+export async function requestPersistentStorage() {
+  if (navigator.storage && navigator.storage.persist) {
+    const isPersisted = await navigator.storage.persisted()
+    console.log('Storage persistence status:', isPersisted)
+    
+    if (!isPersisted) {
+      const granted = await navigator.storage.persist()
+      console.log('Persistent storage granted:', granted)
+      return granted
+    }
+    return isPersisted
+  }
+  console.log('Persistent storage API not available')
+  return false
+}
+
+// Get storage estimate
+export async function getStorageEstimate() {
+  if (navigator.storage && navigator.storage.estimate) {
+    const estimate = await navigator.storage.estimate()
+    console.log('Storage estimate:', {
+      usage: Math.round(estimate.usage / 1024 / 1024) + ' MB',
+      quota: Math.round(estimate.quota / 1024 / 1024) + ' MB',
+      percent: Math.round((estimate.usage / estimate.quota) * 100) + '%'
+    })
+    return estimate
+  }
+  return null
+}
+
 export async function initDB() {
   // Check if existing connection is still valid
   if (db) {

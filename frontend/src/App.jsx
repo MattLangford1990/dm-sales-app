@@ -716,8 +716,17 @@ function OfflineProvider({ children }) {
     window.addEventListener('online', handleOnline)
     window.addEventListener('offline', handleOffline)
     
+    // Request persistent storage on mount to prevent data eviction
+    offlineStore.requestPersistentStorage().then(persisted => {
+      console.log('App: Persistent storage:', persisted)
+    })
+    
+    // Log storage estimate
+    offlineStore.getStorageEstimate()
+    
     // Load sync status on mount
     refreshSyncStatus().then(status => {
+      console.log('App: Initial sync status:', status)
       // Small delay to let login state settle
       setTimeout(() => {
         checkSyncNeeded(status)
