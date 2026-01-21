@@ -96,7 +96,7 @@ const CDN_BASE = 'https://cdn.appdmbrands.com'
 // This matches how images are stored on the CDN from the Cloudinary backup
 const skuToCdnId = (sku) => {
   if (!sku) return null
-  return sku.replace(/\./g, '_')
+  return sku  // SKU stays as-is, no conversion needed
 }
 
 // Keep old name as alias for backward compatibility
