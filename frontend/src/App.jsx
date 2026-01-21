@@ -1611,10 +1611,11 @@ function ProductsTab() {
       return filtered
     }
 
-    // Normalize brand names for comparison - remove spaces, lowercase, extract key words
+    // Normalize brand names for comparison - remove spaces, lowercase, handle umlauts
     const normalizeForMatch = (str) => {
       if (!str) return ''
       return str.toLowerCase()
+        .replace(/ä/g, 'a').replace(/ö/g, 'o').replace(/ü/g, 'u') // Convert umlauts
         .replace(/\s+/g, '') // Remove all spaces
         .replace(/gmbh|ltd|inc|llc/gi, '') // Remove company suffixes
     }
@@ -1622,8 +1623,10 @@ function ProductsTab() {
     // Also extract first meaningful word for partial matching
     const getKeyWord = (str) => {
       if (!str) return ''
-      // Get first word that's not a common prefix
-      const words = str.toLowerCase().split(/\s+/).filter(w => w.length > 2)
+      // Get first word that's not a common prefix, normalize umlauts
+      const normalized = str.toLowerCase()
+        .replace(/ä/g, 'a').replace(/ö/g, 'o').replace(/ü/g, 'u')
+      const words = normalized.split(/\s+/).filter(w => w.length > 2)
       return words[0] || ''
     }
 

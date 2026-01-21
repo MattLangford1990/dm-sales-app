@@ -18,6 +18,7 @@ import json
 from config import get_settings
 from agents import get_agent, get_agent_brands, verify_agent_pin, list_agents, get_all_brand_patterns, is_admin, list_all_agents_admin, create_agent, update_agent, delete_agent, get_all_brands, change_agent_pin
 import zoho_api
+import faire_routes
 
 # Load pack quantities (merge all pack qty files)
 PACK_QUANTITIES_FILES = [
@@ -82,6 +83,9 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Include Faire routes
+app.include_router(faire_routes.router)
 
 
 # NO STARTUP CACHE WARMING - database cache persists across restarts

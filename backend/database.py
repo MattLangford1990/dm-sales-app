@@ -147,5 +147,120 @@ def get_db():
         db.close()
 
 
+# ============ Faire Integration Models ============
+
+class FaireOrder(Base):
+    """Tracks orders received from Faire marketplace"""
+    __tablename__ = "faire_orders"
+    
+    id = Column(String, primary_key=True)  # UUID
+    faire_order_id = Column(String, unique=True, nullable=False)  # Faire's order ID
+    faire_brand_token = Column(String, nullable=False)  # Which brand storefront
+    brand_name = Column(String, nullable=False)  # e.g. "My Flame"
+    
+    # Retailer info
+    retailer_id = Column(String, nullable=True)  # Faire retailer ID
+    retailer_name = Column(String, nullable=False)
+    retailer_email = Column(String, nullable=True)
+    
+    # Address (for agent territory matching)
+    ship_city = Column(String, nullable=True)
+    ship_region = Column(String, nullable=True)  # County/State
+    ship_postcode = Column(String, nullable=True)
+    ship_country = Column(String, default="GB")
+    
+    # Order details
+    order_total_cents = Column(Float, default=0)  # Store in cents to avoid float issues
+    currency = Column(String, default="GBP")
+    item_count = Column(Float, default=0)
+    order_items_json = Column(Text, nullable=True)  # JSON of line items for reference
+    
+    # Status tracking
+    faire_state = Column(String, default="NEW")  # NEW, PROCESSING, PRE_TRANSIT, IN_TRANSIT, DELIVERED, CANCELED
+    
+    # Zoho integration
+    zoho_customer_id = Column(String, nullable=True)  # Created "Faire - [Retailer]" customer
+    zoho_sales_order_id = Column(String, nullable=True)
+    zoho_sales_order_number = Column(String, nullable=True)
+    synced_to_zoho_at = Column(DateTime, nullable=True)
+    
+    # Agent assignment (based on territory)
+    assigned_agent_id = Column(String, nullable=True)  # From postcode/region lookup
+    
+    # Shipment tracking
+    shipped_at = Column(DateTime, nullable=True)
+    tracking_number = Column(String, nullable=True)
+    carrier = Column(String, nullable=True)
+    tracking_pushed_to_faire = Column(Boolean, default=False)
+    
+    # Timestamps
+    faire_created_at = Column(DateTime, nullable=True)  # When order was placed on Faire
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class FaireProductMapping(Base):
+    """Maps Zoho SKUs to Faire product/variant IDs"""
+    __tablename__ = "faire_product_mapping"
+    
+    id = Column(String, primary_key=True)  # UUID
+    
+    # Zoho side
+    zoho_sku = Column(String, nullable=False)  # Our internal SKU
+    zoho_item_id = Column(String, nullable=True)  # Zoho item ID if needed
+    
+    # Faire side
+    faire_product_id = Column(String, nullable=True)  # Faire's product ID
+    faire_product_option_id = Column(String, nullable=True)  # Faire's variant ID
+    
+    # Brand
+    brand_name = Column(String, nullable=False)  # e.g. "My Flame"
+    
+    # Sync status
+    is_synced = Column(Boolean, default=False)  # Has been pushed to Faire
+    last_synced_at = Column(DateTime, nullable=True)
+    sync_error = Column(Text, nullable=True)  # Last error if any
+    
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class FaireBrandConfig(Base):
+    """Configuration for each brand's Faire storefront"""
+    __tablename__ = "faire_brand_config"
+    
+    id = Column(String, primary_key=True)  # brand_name as ID
+    brand_name = Column(String, unique=True, nullable=False)  # e.g. "My Flame"
+    
+    # API credentials
+    faire_access_token = Column(String, nullable=True)  # X-FAIRE-ACCESS-TOKEN
+    
+    # Settings
+    is_active = Column(Boolean, default=False)  # Enable/disable sync
+    sync_inventory = Column(Boolean, default=True)  # Auto-sync stock levels
+    inventory_buffer = Column(Float, default=0)  # Subtract from actual stock (safety buffer)
+    
+    # Sync schedule
+    last_inventory_sync = Column(DateTime, nullable=True)
+    last_order_check = Column(DateTime, nullable=True)
+    
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class FaireWebhookLog(Base):
+    """Log of incoming Faire webhooks for debugging"""
+    __tablename__ = "faire_webhook_log"
+    
+    id = Column(String, primary_key=True)  # UUID
+    webhook_type = Column(String, nullable=False)  # e.g. "ORDER_CREATED"
+    faire_order_id = Column(String, nullable=True)
+    payload_json = Column(Text, nullable=True)  # Full webhook payload
+    processed = Column(Boolean, default=False)
+    error = Column(Text, nullable=True)
+    
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
 # Initialize on import
 init_db()

@@ -145,11 +145,11 @@ const getApiBase = () => {
 
 // Brand variations for matching (same as backend agents.py)
 const BRAND_VARIATIONS = {
-  'Räder': ['Räder', 'Rader', 'raeder', 'Räder Design'],
+  'Räder': ['Räder', 'Rader', 'raeder', 'Räder Design', 'Rader GmbH'],
   'Remember': ['Remember', 'Remember Products'],
   'My Flame': ['My Flame', 'MyFlame', 'My Flame Lifestyle'],
   'Relaxound': ['Relaxound'],
-  'PPD': ['PPD', 'Paper Products Design', 'paperproducts design', 'ppd PAPERPRODUCTS DESIGN'],
+  'PPD': ['PPD', 'Paper Products Design', 'paperproducts design', 'ppd PAPERPRODUCTS DESIGN', 'ppd PAPERPRODUCTS DESIGN GmbH'],
   'Ideas4Seasons': ['Ideas4Seasons', 'Ideas 4 Seasons', 'i4s', 'Ideas4seasons'],
   'Elvang': ['Elvang', 'Elvang Denmark'],
 }
