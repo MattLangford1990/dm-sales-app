@@ -5680,11 +5680,48 @@ function SettingsTab() {
         </div>
       )}
       
+      {/* Refresh App - clears service worker but keeps data */}
+      <div className="bg-blue-50 rounded-lg border border-blue-200 p-4">
+        <h3 className="font-semibold text-lg mb-2 text-blue-800">🔄 Refresh App</h3>
+        <p className="text-sm text-blue-700 mb-3">
+          Updates to latest version. Keeps your cached products, customers and images.
+        </p>
+        <button
+          onClick={async () => {
+            try {
+              addToast('Refreshing app...', 'info')
+              // Unregister all service workers to get fresh code
+              if ('serviceWorker' in navigator) {
+                const registrations = await navigator.serviceWorker.getRegistrations()
+                for (const registration of registrations) {
+                  await registration.unregister()
+                }
+              }
+              // Clear browser cache for this origin
+              if ('caches' in window) {
+                const cacheNames = await caches.keys()
+                for (const name of cacheNames) {
+                  await caches.delete(name)
+                }
+              }
+              // Hard reload
+              window.location.reload(true)
+            } catch (err) {
+              console.error('Refresh failed:', err)
+              window.location.reload(true)
+            }
+          }}
+          className="w-full py-3 bg-blue-600 text-white rounded-lg font-semibold hover:bg-blue-700 transition"
+        >
+          Refresh App
+        </button>
+      </div>
+
       {/* Clear Cache */}
       <div className="bg-red-50 rounded-lg border border-red-200 p-4">
-        <h3 className="font-semibold text-lg mb-2 text-red-800">🗑️ Clear Cache</h3>
+        <h3 className="font-semibold text-lg mb-2 text-red-800">🗑️ Clear All Data</h3>
         <p className="text-sm text-red-700 mb-3">
-          Clears all cached products, customers, and images. You'll need to sync again after restarting.
+          Clears all cached products, customers, and images. You'll need to sync again.
         </p>
         <button
           onClick={async () => {
@@ -5702,7 +5739,7 @@ function SettingsTab() {
           }}
           className="w-full py-3 bg-red-600 text-white rounded-lg font-semibold hover:bg-red-700 transition"
         >
-          Clear Cache & Restart
+          Clear All Data & Restart
         </button>
       </div>
       
