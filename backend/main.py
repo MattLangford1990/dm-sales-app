@@ -792,6 +792,9 @@ async def admin_get_stats(agent: TokenData = Depends(require_admin)):
 
 # ============ Products Routes ============
 
+# PPD brand patterns for filtering
+PPD_BRAND_PATTERNS = ["Paper Products Design", "ppd PAPERPRODUCTS DESIGN GmbH", "ppd", "PAPERPRODUCTS DESIGN"]
+
 def filter_items_by_brand(items: List, brands: List[str]) -> List:
     """Filter items to only those matching agent's brands"""
     # Get all brand variations (e.g., "Paper Products Design" -> ["Paper Products Design", "ppd PAPERPRODUCTS DESIGN GmbH", etc.])
@@ -799,6 +802,9 @@ def filter_items_by_brand(items: List, brands: List[str]) -> List:
     
     filtered = []
     brand_patterns = [re.compile(re.escape(b), re.IGNORECASE) for b in all_patterns]
+    
+    # Check if PPD is in the requested brands
+    ppd_patterns = [re.compile(re.escape(b), re.IGNORECASE) for b in PPD_BRAND_PATTERNS]
     
     for item in items:
         item_brand = item.get("brand") or ""
@@ -812,7 +818,16 @@ def filter_items_by_brand(items: List, brands: List[str]) -> List:
         
         for pattern in brand_patterns:
             if pattern.search(all_text):
-                filtered.append(item)
+                # Check if this is a PPD item
+                is_ppd = any(p.search(all_text) for p in ppd_patterns)
+                
+                # If it's PPD, only include if it has a pack quantity
+                if is_ppd:
+                    sku = item.get("sku", "")
+                    if sku in _pack_quantities:
+                        filtered.append(item)
+                else:
+                    filtered.append(item)
                 break
     
     return filtered
