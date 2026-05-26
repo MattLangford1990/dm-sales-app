@@ -1,0 +1,300 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<title>DM Brands &ndash; New Customer Account</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Playfair+Display:wght@500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#f8f6f3; --card:#ffffff; --ink:#1a1a1a; --muted:#6b6b6b;
+    --plum:#7B4B6A; --plum-light:#9a6488; --plum-pale:#f3e8ef;
+    --teal:#4EB8A9; --teal-pale:#e8f7f5; --border:#e3ddd6;
+    --error:#c44536; --ok:#4EB8A9;
+  }
+  *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--ink);line-height:1.55;padding:0 0 60px}
+  .wrap{max-width:760px;margin:0 auto;padding:0 16px}
+  header{background:var(--card);border-bottom:1px solid var(--border);padding:18px 0;margin-bottom:24px}
+  header .wrap{display:flex;align-items:center;gap:12px}
+  .logo{width:42px;height:42px;border-radius:50%;background:var(--plum);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:18px;flex-shrink:0}
+  .brandname{font-weight:700;font-size:18px;letter-spacing:.5px}
+  .brandname span{color:var(--plum)}
+  .tag{font-size:12px;color:var(--muted)}
+  h1{font-family:'Playfair Display',serif;font-size:26px;font-weight:600;margin-bottom:4px}
+  .sub{color:var(--muted);font-size:14px;margin-bottom:24px}
+  .card{background:var(--card);border:1px solid var(--border);border-radius:14px;padding:20px;margin-bottom:18px;box-shadow:0 2px 12px rgba(0,0,0,.03)}
+  .sec-title{font-weight:700;font-size:13px;text-transform:uppercase;letter-spacing:1px;color:var(--plum);margin-bottom:16px;display:flex;align-items:center;gap:8px}
+  .sec-title .n{background:var(--plum);color:#fff;width:22px;height:22px;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;font-size:12px}
+  .row{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+  .row3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:14px}
+  @media(max-width:560px){.row,.row3{grid-template-columns:1fr}}
+  .field{margin-bottom:14px}
+  .field:last-child{margin-bottom:0}
+  label.lbl{display:block;font-size:13px;font-weight:600;margin-bottom:6px;color:#333}
+  label.lbl .req{color:var(--error)}
+  input[type=text],input[type=email],input[type=tel],input[type=url],input[type=number],select,textarea{
+    width:100%;padding:11px 13px;border:1.5px solid var(--border);border-radius:9px;font-family:inherit;font-size:15px;background:#fff;color:var(--ink);transition:border-color .15s}
+  input:focus,select:focus,textarea:focus{outline:none;border-color:var(--plum)}
+  input.invalid,select.invalid{border-color:var(--error);background:#fdf3f1}
+  textarea{resize:vertical;min-height:70px}
+  .hint{font-size:12px;color:var(--muted);margin-top:4px}
+  /* tick tiles */
+  .tiles{display:flex;flex-wrap:wrap;gap:10px}
+  .tile{position:relative;cursor:pointer;user-select:none}
+  .tile input{position:absolute;opacity:0;pointer-events:none}
+  .tile span{display:inline-flex;align-items:center;gap:8px;padding:9px 14px;border:1.5px solid var(--border);border-radius:30px;font-size:14px;font-weight:500;background:#fff;transition:all .15s}
+  .tile span::before{content:"";width:16px;height:16px;border:1.5px solid #c3bcb2;border-radius:5px;display:inline-block;transition:all .15s}
+  .tile input:checked+span{border-color:var(--plum);background:var(--plum-pale);color:var(--plum)}
+  .tile input:checked+span::before{background:var(--plum);border-color:var(--plum);box-shadow:inset 0 0 0 2px #fff}
+  .tile input:focus-visible+span{box-shadow:0 0 0 3px var(--plum-pale)}
+  /* radio pills */
+  .pill input:checked+span{border-color:var(--teal);background:var(--teal-pale);color:#2c7f73}
+  .pill span::before{border-radius:50%}
+  .pill input:checked+span::before{background:var(--teal);border-color:var(--teal)}
+  /* same as billing toggle */
+  .toggle{display:flex;align-items:center;gap:12px;background:var(--teal-pale);border:1.5px solid #bfe5df;border-radius:10px;padding:12px 14px;cursor:pointer;margin-bottom:16px}
+  .toggle input{width:20px;height:20px;accent-color:var(--teal);flex-shrink:0}
+  .toggle .t-txt{font-size:14px;font-weight:600;color:#2c7f73}
+  #deliveryFields.hidden{display:none}
+  .btn{width:100%;padding:15px;border:none;border-radius:11px;background:var(--plum);color:#fff;font-family:inherit;font-size:16px;font-weight:700;cursor:pointer;transition:background .15s}
+  .btn:hover{background:var(--plum-light)}
+  .btn:disabled{opacity:.55;cursor:not-allowed}
+  .err-banner{display:none;background:#fdecea;border:1px solid #f3c0ba;color:var(--error);padding:12px 14px;border-radius:10px;font-size:14px;margin-bottom:16px}
+  .err-banner.show{display:block}
+  /* success */
+  #done{display:none;text-align:center;padding:50px 20px}
+  #done.show{display:block}
+  #done .check{width:72px;height:72px;border-radius:50%;background:var(--teal-pale);color:var(--teal);display:flex;align-items:center;justify-content:center;font-size:38px;margin:0 auto 20px}
+  #done h2{font-family:'Playfair Display',serif;font-size:24px;margin-bottom:8px}
+  #done p{color:var(--muted);margin-bottom:24px}
+  .ghost{background:#fff;color:var(--plum);border:1.5px solid var(--plum)}
+  .ghost:hover{background:var(--plum-pale)}
+  footer{text-align:center;font-size:11px;color:#a39c92;margin-top:24px}
+</style>
+</head>
+<body>
+<header><div class="wrap"><div class="logo">DM</div><div><div class="brandname">DM BRANDS <span>LTD</span></div><div class="tag">New customer account</div></div></div></header>
+
+<div class="wrap">
+  <div id="form">
+    <h1>New Customer Account</h1>
+    <p class="sub">Capture the customer&rsquo;s details below. On submit, the full record is emailed straight to the office to set up on Zoho. Fields marked <span style="color:var(--error)">*</span> are required.</p>
+
+    <div class="err-banner" id="errBanner"></div>
+
+    <!-- 1 Business -->
+    <div class="card">
+      <div class="sec-title"><span class="n">1</span> Business details</div>
+      <div class="field"><label class="lbl">Trading name <span class="req">*</span></label><input type="text" id="tradingName" required></div>
+      <div class="row">
+        <div class="field"><label class="lbl">Registered company name</label><input type="text" id="registeredName"></div>
+        <div class="field"><label class="lbl">Company reg. number</label><input type="text" id="companyRegNo"></div>
+      </div>
+      <div class="row">
+        <div class="field"><label class="lbl">VAT number</label><input type="text" id="vatNumber" placeholder="GB000000000"></div>
+        <div class="field"><label class="lbl">Website</label><input type="url" id="website" placeholder="https://"></div>
+      </div>
+      <div class="row">
+        <div class="field"><label class="lbl">Main phone <span class="req">*</span></label><input type="tel" id="phone" required></div>
+        <div class="field"><label class="lbl">Main email <span class="req">*</span></label><input type="email" id="email" required></div>
+      </div>
+      <div class="field"><label class="lbl">Business type</label>
+        <div class="tiles" id="businessType">
+          <label class="tile pill"><input type="radio" name="bt" value="Independent retailer"><span>Independent retailer</span></label>
+          <label class="tile pill"><input type="radio" name="bt" value="Garden centre"><span>Garden centre</span></label>
+          <label class="tile pill"><input type="radio" name="bt" value="Department store"><span>Department store</span></label>
+          <label class="tile pill"><input type="radio" name="bt" value="Online only"><span>Online only</span></label>
+          <label class="tile pill"><input type="radio" name="bt" value="Other"><span>Other</span></label>
+        </div>
+      </div>
+    </div>
+
+    <!-- 2 Primary contact -->
+    <div class="card">
+      <div class="sec-title"><span class="n">2</span> Primary contact</div>
+      <div class="row">
+        <div class="field"><label class="lbl">First name <span class="req">*</span></label><input type="text" id="firstName" required></div>
+        <div class="field"><label class="lbl">Last name <span class="req">*</span></label><input type="text" id="lastName" required></div>
+      </div>
+      <div class="row3">
+        <div class="field"><label class="lbl">Job title</label><input type="text" id="jobTitle"></div>
+        <div class="field"><label class="lbl">Direct phone</label><input type="tel" id="directPhone"></div>
+        <div class="field"><label class="lbl">Contact email</label><input type="email" id="contactEmail"><div class="hint">Leave blank to use main email</div></div>
+      </div>
+    </div>
+
+    <!-- 3 Accounts contact -->
+    <div class="card">
+      <div class="sec-title"><span class="n">3</span> Accounts / invoicing contact</div>
+      <p class="hint" style="margin-bottom:14px">Leave blank if the same as the primary contact.</p>
+      <div class="row3">
+        <div class="field"><label class="lbl">Contact name</label><input type="text" id="accName"></div>
+        <div class="field"><label class="lbl">Phone</label><input type="tel" id="accPhone"></div>
+        <div class="field"><label class="lbl">Invoice email</label><input type="email" id="accEmail"></div>
+      </div>
+    </div>
+
+    <!-- 4 Billing -->
+    <div class="card">
+      <div class="sec-title"><span class="n">4</span> Billing address</div>
+      <div class="field"><label class="lbl">Address line 1 <span class="req">*</span></label><input type="text" id="billAddress1" required></div>
+      <div class="field"><label class="lbl">Address line 2</label><input type="text" id="billAddress2"></div>
+      <div class="row3">
+        <div class="field"><label class="lbl">Town / city <span class="req">*</span></label><input type="text" id="billTown" required></div>
+        <div class="field"><label class="lbl">County</label><input type="text" id="billCounty"></div>
+        <div class="field"><label class="lbl">Postcode <span class="req">*</span></label><input type="text" id="billPostcode" required></div>
+      </div>
+      <div class="field"><label class="lbl">Country <span class="req">*</span></label><input type="text" id="billCountry" value="United Kingdom" required></div>
+    </div>
+
+    <!-- 5 Delivery -->
+    <div class="card">
+      <div class="sec-title"><span class="n">5</span> Delivery address</div>
+      <label class="toggle" for="sameAsBilling"><input type="checkbox" id="sameAsBilling" checked><span class="t-txt">Delivery address same as billing</span></label>
+      <div id="deliveryFields" class="hidden">
+        <div class="field"><label class="lbl">Address line 1</label><input type="text" id="delAddress1"></div>
+        <div class="field"><label class="lbl">Address line 2</label><input type="text" id="delAddress2"></div>
+        <div class="row3">
+          <div class="field"><label class="lbl">Town / city</label><input type="text" id="delTown"></div>
+          <div class="field"><label class="lbl">County</label><input type="text" id="delCounty"></div>
+          <div class="field"><label class="lbl">Postcode</label><input type="text" id="delPostcode"></div>
+        </div>
+        <div class="field"><label class="lbl">Country</label><input type="text" id="delCountry" value="United Kingdom"></div>
+      </div>
+      <div class="field"><label class="lbl">Delivery notes</label><textarea id="deliveryNotes" placeholder="Access, delivery days, lift/ground floor, etc."></textarea></div>
+    </div>
+
+    <!-- 6 Trading -->
+    <div class="card">
+      <div class="sec-title"><span class="n">6</span> Trading preferences</div>
+      <div class="field"><label class="lbl">Brands of interest</label>
+        <div class="tiles" id="brands">
+          <label class="tile"><input type="checkbox" value="R&auml;der"><span>R&auml;der</span></label>
+          <label class="tile"><input type="checkbox" value="Remember"><span>Remember</span></label>
+          <label class="tile"><input type="checkbox" value="Relaxound"><span>Relaxound</span></label>
+          <label class="tile"><input type="checkbox" value="Elvang"><span>Elvang</span></label>
+          <label class="tile"><input type="checkbox" value="My Flame"><span>My Flame</span></label>
+          <label class="tile"><input type="checkbox" value="PPD"><span>PPD</span></label>
+          <label class="tile"><input type="checkbox" value="Ideas4Seasons"><span>Ideas4Seasons</span></label>
+        </div>
+      </div>
+    </div>
+
+    <!-- 7 Payment -->
+    <div class="card">
+      <div class="sec-title"><span class="n">7</span> Payment &amp; terms</div>
+      <div class="field"><label class="lbl">Preferred payment method</label>
+        <div class="tiles" id="paymentMethod">
+          <label class="tile pill"><input type="radio" name="pm" value="Pro-forma"><span>Pro-forma (card / bank transfer)</span></label>
+          <label class="tile pill"><input type="radio" name="pm" value="30-day account"><span>Account (30 days, subject to approval)</span></label>
+        </div>
+      </div>
+    </div>
+
+    <!-- 8 Notes -->
+    <div class="card">
+      <div class="sec-title"><span class="n">8</span> Notes</div>
+      <div class="field"><label class="lbl">Anything else we should know?</label><textarea id="notes"></textarea></div>
+    </div>
+
+    <button class="btn" id="submitBtn">Submit customer details</button>
+    <footer>DM Brands Ltd &middot; 79 Waterworks Road, Worcester WR1 3EZ &middot; Company No. 07517652 &middot; VAT GB 851 815 128</footer>
+  </div>
+
+  <div id="done">
+    <div class="check">&check;</div>
+    <h2>Customer details sent</h2>
+    <p>The full record has been emailed to the office and is ready to set up on Zoho.</p>
+    <button class="btn ghost" id="anotherBtn">Add another customer</button>
+  </div>
+</div>
+
+<script>
+(function(){
+  var same = document.getElementById('sameAsBilling');
+  var delWrap = document.getElementById('deliveryFields');
+  function syncDelivery(){ if(same.checked){ delWrap.classList.add('hidden'); } else { delWrap.classList.remove('hidden'); } }
+  same.addEventListener('change', syncDelivery); syncDelivery();
+
+  var val = function(id){ var el=document.getElementById(id); return el?el.value.trim():''; };
+  var checkedVals = function(containerId){ return Array.prototype.slice.call(document.querySelectorAll('#'+containerId+' input:checked')).map(function(i){return i.value;}); };
+  var radioVal = function(name){ var el=document.querySelector('input[name="'+name+'"]:checked'); return el?el.value:''; };
+
+  var required = ['tradingName','phone','email','firstName','lastName','billAddress1','billTown','billPostcode','billCountry'];
+  var btn = document.getElementById('submitBtn');
+  var banner = document.getElementById('errBanner');
+
+  btn.addEventListener('click', function(){
+    banner.classList.remove('show');
+    document.querySelectorAll('.invalid').forEach(function(e){e.classList.remove('invalid');});
+    var missing=[];
+    required.forEach(function(id){ var el=document.getElementById(id); if(!el.value.trim()){ el.classList.add('invalid'); missing.push(id);} });
+    var em=document.getElementById('email');
+    if(em.value && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(em.value)){ em.classList.add('invalid'); if(missing.indexOf('email')<0)missing.push('email'); }
+    if(missing.length){
+      banner.textContent='Please complete the highlighted required fields.';
+      banner.classList.add('show');
+      window.scrollTo({top:0,behavior:'smooth'});
+      return;
+    }
+
+    var billing={address1:val('billAddress1'),address2:val('billAddress2'),town:val('billTown'),county:val('billCounty'),postcode:val('billPostcode').toUpperCase(),country:val('billCountry')};
+    var delivery = same.checked ? Object.assign({sameAsBilling:true},billing) :
+      {sameAsBilling:false,address1:val('delAddress1'),address2:val('delAddress2'),town:val('delTown'),county:val('delCounty'),postcode:val('delPostcode').toUpperCase(),country:val('delCountry')};
+
+    // Flatten to plain key/value pairs so FormSubmit renders each as a row in the email table.
+    var fmtAddr = function(a){ return [a.address1,a.address2,a.town,a.county,a.postcode,a.country].filter(Boolean).join(', '); };
+    var formData = {
+      _subject: 'New customer account: ' + val('tradingName'),
+      _template: 'table',
+      _captcha: 'false',
+      _replyto: val('email'),
+
+      'Trading name': val('tradingName'),
+      'Registered name': val('registeredName'),
+      'Company reg no': val('companyRegNo'),
+      'VAT number': val('vatNumber'),
+      'Website': val('website'),
+      'Main phone': val('phone'),
+      'Main email': val('email'),
+      'Business type': radioVal('bt'),
+
+      'Primary contact': (val('firstName')+' '+val('lastName')).trim(),
+      'Job title': val('jobTitle'),
+      'Direct phone': val('directPhone'),
+      'Contact email': val('contactEmail')||val('email'),
+
+      'Accounts contact': val('accName'),
+      'Accounts phone': val('accPhone'),
+      'Invoice email': val('accEmail'),
+
+      'Billing address': fmtAddr(billing),
+      'Delivery address': delivery.sameAsBilling ? 'Same as billing' : fmtAddr(delivery),
+      'Delivery notes': val('deliveryNotes'),
+
+      'Brands of interest': checkedVals('brands').join(', '),
+      'Payment method': radioVal('pm'),
+      'Notes': val('notes')
+    };
+
+    btn.disabled=true; btn.textContent='Sending\u2026';
+    // FormSubmit relays the email directly to sales@dmbrands.co.uk \u2014 no backend, no SMTP, no env vars.
+    fetch('https://formsubmit.co/ajax/sales@dmbrands.co.uk',{
+      method:'POST',
+      headers:{'Content-Type':'application/json','Accept':'application/json'},
+      body:JSON.stringify(formData)
+    })
+      .then(function(r){ return r.json().then(function(j){ if(!r.ok||j.success==='false'||j.success===false) throw new Error(j.message||'Server error'); return j; }); })
+      .then(function(){ document.getElementById('form').style.display='none'; document.getElementById('done').classList.add('show'); window.scrollTo({top:0}); })
+      .catch(function(e){ banner.textContent='Sorry, something went wrong sending the details. Please try again. ('+(e.message||'unknown error')+')'; banner.classList.add('show'); btn.disabled=false; btn.textContent='Submit customer details'; window.scrollTo({top:0,behavior:'smooth'}); });
+  });
+
+  document.getElementById('anotherBtn').addEventListener('click', function(){ location.reload(); });
+})();
+</script>
+</body>
+</html>
