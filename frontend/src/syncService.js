@@ -152,6 +152,7 @@ const BRAND_VARIATIONS = {
   'PPD': ['PPD', 'Paper Products Design', 'paperproducts design', 'ppd PAPERPRODUCTS DESIGN', 'ppd PAPERPRODUCTS DESIGN GmbH'],
   'Ideas4Seasons': ['Ideas4Seasons', 'Ideas 4 Seasons', 'i4s', 'Ideas4seasons'],
   'Elvang': ['Elvang', 'Elvang Denmark'],
+  'Lenet': ['Lenet', 'THUN SPA', 'Thun'],
 }
 
 // Check if a product matches any of the agent's brands
