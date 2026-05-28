@@ -27,6 +27,7 @@ PACK_QUANTITIES_FILES = [
     os.path.join(os.path.dirname(__file__), "i4s_pack_qtys.json"),
     os.path.join(os.path.dirname(__file__), "myflame_pack_qtys.json"),
     os.path.join(os.path.dirname(__file__), "ppd_pack_qtys.json"),
+    os.path.join(os.path.dirname(__file__), "lenet_pack_qtys.json"),
 ]
 def load_pack_quantities():
     merged = {}
