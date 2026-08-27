@@ -153,6 +153,7 @@ const BRAND_VARIATIONS = {
   'Ideas4Seasons': ['Ideas4Seasons', 'Ideas 4 Seasons', 'i4s', 'Ideas4seasons'],
   'Elvang': ['Elvang', 'Elvang Denmark'],
   'Lenet': ['Lenet', 'THUN SPA', 'Thun'],
+  'WD Lifestyle': ['WD Lifestyle', 'WDLifestyle'],
 }
 
 // Check if a product matches any of the agent's brands
