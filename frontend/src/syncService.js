@@ -154,6 +154,7 @@ const BRAND_VARIATIONS = {
   'Elvang': ['Elvang', 'Elvang Denmark'],
   'Lenet': ['Lenet', 'THUN SPA', 'Thun'],
   'WD Lifestyle': ['WD Lifestyle', 'WDLifestyle'],
+  'Gift Novels': ['Gift Novels', 'GIFT NOVELS', 'GiftNovels'],
 }
 
 // Check if a product matches any of the agent's brands
