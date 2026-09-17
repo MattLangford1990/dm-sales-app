@@ -138,13 +138,27 @@ async def main():
     print(f"PRODUCT FEED GENERATOR - {datetime.now().isoformat()}")
     print(f"{'='*60}\n")
     
-    # Load pack quantities
-    pack_qty_file = os.path.join(os.path.dirname(os.path.dirname(__file__)), "pack_quantities.json")
+    # Load pack quantities - MUST match the merge used by backend/main.py,
+    # otherwise PPD lines come through with pack_qty null and the app adds
+    # singles instead of cases.
+    backend_dir = os.path.dirname(os.path.dirname(__file__))
+    PACK_FILES = [
+        "pack_quantities.json",
+        "remember_pack_qtys.json",
+        "i4s_pack_qtys.json",
+        "myflame_pack_qtys.json",
+        "ppd_pack_qtys.json",
+        "lenet_pack_qtys.json",
+    ]
     pack_quantities = {}
-    if os.path.exists(pack_qty_file):
-        with open(pack_qty_file) as f:
-            pack_quantities = json.load(f)
-        print(f"Loaded {len(pack_quantities)} pack quantities")
+    for fn in PACK_FILES:
+        fp = os.path.join(backend_dir, fn)
+        if os.path.exists(fp):
+            with open(fp) as f:
+                d = json.load(f)
+            pack_quantities.update(d)
+            print(f"Loaded {len(d)} pack quantities from {fn}")
+    print(f"Total merged pack quantities: {len(pack_quantities)}")
     
     # Load image URLs (Cloudinary URLs for Elvang etc)
     image_urls_file = os.path.join(os.path.dirname(os.path.dirname(__file__)), "image_urls.json")
@@ -163,6 +177,27 @@ async def main():
     active_items = [i for i in all_items if i.get("status") != "inactive"]
     print(f"   Active items: {len(active_items)}")
     
+    # PPD gate - mirrors filter_items_by_brand in backend/main.py: a PPD item
+    # is only listed if its SKU has a pack quantity. Parking a SKU's pack
+    # quantity is therefore how a PPD line is hidden from the app.
+    PPD_MARKERS = ("ppd", "paperproducts", "paper products")
+
+    def is_ppd(item):
+        blob = " ".join([
+            str(item.get("brand") or ""),
+            str(item.get("manufacturer") or ""),
+            str(item.get("cf_brand") or ""),
+        ]).lower()
+        return any(m in blob for m in PPD_MARKERS)
+
+    before = len(active_items)
+    dropped = [i for i in active_items
+               if is_ppd(i) and (i.get("sku") or "") not in pack_quantities]
+    active_items = [i for i in active_items
+                    if not (is_ppd(i) and (i.get("sku") or "") not in pack_quantities)]
+    print(f"   PPD gate: dropped {len(dropped)} PPD items with no pack quantity "
+          f"({before} -> {len(active_items)})")
+
     # Transform to our format
     print("\n2. Transforming products...")
     products = [transform_product(item, pack_quantities, image_urls) for item in active_items]
