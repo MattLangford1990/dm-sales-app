@@ -1679,21 +1679,50 @@ function ProductsTab() {
     setPrefetchedImages(new Set())
   }, [selectedBrand, search])
   
-  // Background refresh from API when brand selected
+  // Background refresh from API when brand selected.
+  // Pages through every result - a single page=1 request silently truncated
+  // large brands (PPD has 2,654 items) and made the overflow unreachable.
   useEffect(() => {
-    if (selectedBrand && isOnline) {
-      setIsFetchingProducts(true)
-      apiRequest(`/products?page=1&limit=2000&brand=${encodeURIComponent(selectedBrand)}`)
-        .then(data => {
-          if (data.products?.length > 0) {
-            setFreshProducts(data.products)
-          }
-        })
-        .catch(err => console.log('Background refresh failed:', err))
-        .finally(() => setIsFetchingProducts(false))
-    }
     // Clear fresh products when brand changes
     setFreshProducts(null)
+
+    if (!selectedBrand || !isOnline) return
+
+    let cancelled = false
+    const PAGE_SIZE = 1000
+    const MAX_PAGES = 30 // safety stop, 30k items
+
+    const loadAll = async () => {
+      setIsFetchingProducts(true)
+      try {
+        let all = []
+        let page = 1
+        while (page <= MAX_PAGES) {
+          const data = await apiRequest(
+            `/products?page=${page}&limit=${PAGE_SIZE}&brand=${encodeURIComponent(selectedBrand)}`
+          )
+          const batch = data.products || []
+          all = all.concat(batch)
+          // Trust has_more, but stop anyway on a short or empty page
+          if (!data.has_more || batch.length === 0 || batch.length < PAGE_SIZE) break
+          page += 1
+        }
+        if (page > MAX_PAGES) {
+          console.warn(`Product fetch hit the ${MAX_PAGES}-page cap for ${selectedBrand}`)
+        }
+        if (!cancelled && all.length > 0) {
+          console.log(`Loaded ${all.length} products for ${selectedBrand} over ${page} page(s)`)
+          setFreshProducts(all)
+        }
+      } catch (err) {
+        console.log('Background refresh failed:', err)
+      } finally {
+        if (!cancelled) setIsFetchingProducts(false)
+      }
+    }
+
+    loadAll()
+    return () => { cancelled = true }
   }, [selectedBrand, isOnline])
   
   // Save view mode preference
